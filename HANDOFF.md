@@ -14,7 +14,7 @@ Build an Alberta-focused used-pickup asking-price valuator with a public valuati
 - The Ford Ranger workbook contains 32 rows, zero exact duplicates, and the columns `Year`, `Mileage`, and `Price`.
 - No external listing data has been acquired, persisted, or used for training.
 - MarketCheck signup has not been completed, and no API credentials are stored in the repository.
-- This directory is not currently a Git repository.
+- Git is initialized on `master` and connected to `https://github.com/marcuz-apl/carvalue.git`.
 - The ECC memory runtime is unavailable; this file is the authoritative handoff.
 
 ## Finalized decisions
@@ -61,10 +61,8 @@ Use the detailed [MarketCheck onboarding and resume guide](./docs/MARKETCHECK-ON
 
 - Continue pursuing MarketCheck or prioritize another acquisition route.
 - Begin application scaffolding before securing a production data licence.
-- Initialize the folder as a Git repository.
 - Select hosting, backup storage, and admin identity mechanisms.
 
 ## Successful next-thread outcome
 
 Finish with one concrete result: MarketCheck technical access tested without persistence; written rights reviewed; MarketCheck rejected and a replacement selected; or permission-safe scaffolding implemented using synthetic fixtures. Report whether any live provider data was accessed or stored.
-

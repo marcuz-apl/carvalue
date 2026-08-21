@@ -45,6 +45,9 @@ temp/
 # Local memory and tooling state
 .ecc/memory/project/
 
+# Agent worktrees
+.worktrees/
+
 # Editors and operating systems
 .idea/
 .vscode/
@@ -53,4 +56,3 @@ temp/
 .DS_Store
 Thumbs.db
 desktop.ini
-

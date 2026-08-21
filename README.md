@@ -4,7 +4,7 @@ CarValue is a planned web platform for estimating used pickup-truck asking price
 
 ## Project status
 
-CarValue is currently in the product-definition and data-source feasibility phase. The application has not yet been scaffolded.
+CarValue is in the permission-safe foundation phase. The repository has a Python modular-monolith foundation, SQLite-oriented domain models, spreadsheet validation primitives, versioned Git hooks, and a passing baseline test suite. Production data collection remains disabled until a source has documented permission and reuse terms.
 
 The immediate blocker is securing a lawful, repeatable source of Alberta vehicle-listing data. AutoTrader.ca and CarGurus.ca are not approved for automated collection, and MarketCheck requires further signup and licensing review before its data may be persisted or used for model training.
 
@@ -49,15 +49,22 @@ The preferred long-term strategy combines licensed automotive data with direct A
 - [Original initiative](./Initiative.md)
 - [Ford Ranger valuation example](./Ford-Ranger/Valuation-of-a-used-Ford-Ranger.md)
 
-## Next steps
+## Delivery roadmap
 
-1. Resolve MarketCheck signup and licensing, or select another approved acquisition route.
-2. Confirm whether application scaffolding should begin while data licensing is pending.
-3. Define the normalized vehicle-listing schema and source permission model.
-4. Build permission-safe ingestion interfaces and synthetic contract fixtures.
-5. Establish the OLS baseline and CatBoost evaluation pipeline once rights-confirmed data is available.
+CarValue is delivered through gated milestones. Each milestone must meet its exit criteria before dependent work begins. The detailed scope, dependencies, and no-go conditions live in [the technical roadmap](./docs/TECHNICAL-ROADMAP.md).
+
+1. **Foundation hardening:** package boundaries, migrations, configuration, lint/type cleanup, and test infrastructure.
+2. **Data rights and contracts:** source permission metadata, pickup taxonomy, normalized listing contract, and authorized fixtures. **Current milestone.**
+3. **Import and data quality:** CSV/XLSX preview, validation, provenance, deduplication, price history, and safe SQLite upserts.
+4. **Offline valuation proof:** OLS benchmark, CatBoost candidate, chronological evaluation, calibrated 80% intervals, refusal rules, and model card.
+5. **Valuation API:** validated public requests and explainable asking-price results.
+6. **Admin and workers:** authenticated operations, source/run management, leases, retries, audit, snapshots, model promotion, and rollback.
+7. **Public web experience:** accessible responsive valuation flow, results, feedback, privacy controls, and error states.
+8. **Launch hardening:** security, accessibility, backup/restore, observability, deployment, and production smoke tests.
+9. **Coverage expansion:** additional makes, models, and vehicle classes only after evidence gates pass.
+
+No live marketplace adapter, automated collection, or polished public launch is scheduled ahead of the applicable permission, data-volume, accuracy, and calibration gates.
 
 ## Important disclaimer
 
 CarValue is intended to provide evidence-based asking-price estimates. It is not a certified appraisal, guaranteed sale price, trade-in offer, lending value, or insurance valuation.
-

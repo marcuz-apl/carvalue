@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "carvalue"
+version = "0.1.0"
+description = "Explainable used-pickup asking-price valuator for Alberta, Canada (modular monolith)"
+readme = "README.md"
+requires-python = ">=3.12,<4"
+authors = [{ name = "CarValue" }]
+dependencies = [
+    # Shared runtime dependencies of the modular monolith (core domain + API + worker).
+    "pydantic>=2.7,<3",
+    "pydantic-settings>=2.2,<3",
+    "SQLAlchemy>=2.0,<3",
+    "alembic>=1.13,<2",
+    "pandas>=2.2,<3",
+    "numpy>=1.26,<3",
+    "statsmodels>=0.14,<0.15",
+    "openpyxl>=3.1,<4",
+    "fastapi>=0.111,<1",
+    "uvicorn[standard]>=0.30,<1",
+    "APScheduler>=3.10,<4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<9",
+    "pytest-cov>=5,<7",
+    "ruff>=0.4",
+    "mypy>=1.10",
+    "httpx>=0.27", # starlette TestClient transport
+]
+# Phase 1 nonlinear candidate (kept optional until the CatBoost pipeline lands).
+ml-candidate = [
+    "catboost>=1.2,<2",
+    "scikit-learn>=1.4,<2",
+]
+
+[project.scripts]
+carvalue = "carvalue_api.cli:main"
+
+# Modular monolith layout (see docs/adr/0001-python-workspace-layout.md):
+# one distribution, three importable packages mapped to their service folders.
+[tool.setuptools.packages.find]
+where = ["packages/core", "services/api", "services/worker"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+xfail_strict = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E", # pycodestyle errors
+    "W", # pycodestyle warnings
+    "F", # pyflakes
+    "I", # isort
+    "UP", # pyupgrade
+    "B", # flake8-bugbear
+    "SIM", # flake8-simplify
+]
+
+[tool.mypy]
+python_version = "3.12"
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unreachable = true
+no_implicit_optional = true
+check_untyped_defs = true
+disallow_untyped_defs = true
+# Third-party libraries without (complete) type stubs.
+[[tool.mypy.overrides]]
+module = [
+    "numpy.*",
+    "pandas.*",
+    "statsmodels.*",
+    "openpyxl.*",
+    "apscheduler.*",
+]
+ignore_missing_imports = true

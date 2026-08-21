@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -eu
+
+exec "$(dirname "$0")/versioning.sh" stamp "$@"

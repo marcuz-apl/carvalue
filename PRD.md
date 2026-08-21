@@ -222,17 +222,7 @@ The crawler is an adapter boundary. Each source owns URL discovery, fetch, parse
 
 ## 10. Source acquisition and compliance gate
 
-The named marketplaces cannot be assumed crawlable merely because pages are public. At the time this PRD was prepared, [AutoTrader.ca’s terms](https://www.autotrader.ca/Cms/TermsConditions/) state that automated access and collection/indexing are prohibited. [CarGurus’ terms](https://www.cargurus.com/about/terms-of-use) prohibit systematic extraction and scraping except within their stated conditions. Written permission, a licensed feed/API, or counsel-approved use is therefore a prerequisite before enabling those adapters.
-
-Preferred source order:
-
-1. licensed marketplace/dealer feeds or written partner permission;
-2. direct dealer inventory feeds with permission;
-3. government/open datasets whose licence permits this use;
-4. administrator or user-contributed CSV/XLSX data with documented rights;
-5. permitted public pages only after terms, robots directives, copyright/database rights, privacy, attribution, retention, and rate limits are reviewed.
-
-The source review must be repeated at least every 90 days and immediately on a relevant policy change. The product must not employ stealth, proxy rotation, CAPTCHA solving, login automation, or other access-control evasion.
+The named marketplaces can be AutoTrader.ca or CarGurus.com or any dataset made available.
 
 Technology references: [Playwright browser support](https://playwright.dev/docs/browsers) and [Crawl4AI documentation](https://docs.crawl4ai.com/).
 

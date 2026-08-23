@@ -207,12 +207,16 @@ async def valuation(request: ValuationRequest, req: Request) -> ValuationRespons
             )
 
         # Compute vehicle age at the valuation date (FR-ML-01).
-        from carvalue_core.units import MODEL_YEAR_ANCHOR_DAY, MODEL_YEAR_ANCHOR_MONTH, days_per_year
+        from carvalue_core.units import (
+            DAYS_PER_YEAR,
+            MODEL_YEAR_ANCHOR_DAY,
+            MODEL_YEAR_ANCHOR_MONTH,
+        )
 
         anchor = date(request.year, MODEL_YEAR_ANCHOR_MONTH, MODEL_YEAR_ANCHOR_DAY)
         reference_date = req.headers.get("x-valuation-date", str(date.today()))
         valuation_date = datetime.fromisoformat(reference_date.replace("Z", "+00:00"))
-        vehicle_age_years = max((valuation_date - anchor).days / days_per_year, 0.0)
+        vehicle_age_years = max((valuation_date - anchor).days / DAYS_PER_YEAR, 0.0)
 
         # Query active comparables for this make/model/trim/drivetrain/seller_type.
         query = (

@@ -49,13 +49,18 @@ COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
     "seller_type": ("seller_type", "seller"),
     "canonical_url": ("url", "listing_url", "source_url"),
     "source_record_id": ("listing_id", "inventory_id", "record_id"),
-    "observed_at": ("first_listed_at", "listed_date", "date", "observed_at"),
+    "observed_at": ("first_listed_at", "listed_date", "date", "observed at", "observed_at"),
     "province": ("province",),
     "city": ("city", "location_city"),
 }
 
 DRIVETRAIN_ALIASES = {"2wd": "2wd", "fwd": "2wd", "rear wheel drive": "2wd", "4wd": "4wd"}
-SELLER_TYPE_ALIASES = {"dealer": "dealer", "private": "private", "owner": "private", "individual": "private"}
+SELLER_TYPE_ALIASES: dict[str, str] = {
+    "dealer": "dealer",
+    "private": "private",
+    "owner": "private",
+    "individual": "private",
+}
 
 DEFAULT_MAX_PRICE_CAD: int = 300_000
 
@@ -105,7 +110,7 @@ def _normalize_header(name: object) -> str:
     return re.sub(r"\s+", " ", normalize_token(name))
 
 
-def map_columns(header: list[object]) -> tuple[dict[str, str], list[str]]:
+def map_columns(header: list[str]) -> tuple[dict[str, str], list[str]]:
     """Map file headers to canonical fields. Returns (mapping, unknown_headers)."""
     mapping: dict[str, str] = {}
     unknown: list[str] = []
@@ -114,7 +119,11 @@ def map_columns(header: list[object]) -> tuple[dict[str, str], list[str]]:
         for alias in aliases:
             if _normalize_header(alias) in normalized_headers and canonical not in mapping:
                 # Prefer the exact-ish match that appears earliest in the file.
-                candidates = [h for h in header if h is not None and _normalize_header(h) == _normalize_header(alias)]
+                candidates = [
+                    h
+                    for h in header
+                    if h is not None and _normalize_header(h) == _normalize_header(alias)
+                ]
                 if candidates:
                     mapping[canonical] = str(candidates[0])
                     break
@@ -147,7 +156,9 @@ def _coerce_int(value: Any) -> int | None:
 def _coerce_datetime(value: Any, fallback: datetime) -> tuple[datetime | None, bool]:
     """Parse a date/datetime cell; returns (value_or_None, used_fallback)."""
     if value is None or (isinstance(value, str) and not value.strip()):
-        return None, True
+        from ..persistence import _as_utc
+
+        return _as_utc(fallback), True  # empty cell -> deterministic UTC fallback
     if isinstance(value, datetime):
         dt = value
     elif isinstance(value, date):
@@ -240,7 +251,11 @@ def normalize_row(
     seller_type = SELLER_TYPE_ALIASES.get(seller_raw) if seller_raw else None
 
     trim_raw = row.get("trim")
-    trim = taxonomy.resolve_trim(model, trim_raw) if (taxonomy and trim_raw not in (None, "")) else None
+    trim = (
+        taxonomy.resolve_trim(model, trim_raw)
+        if (taxonomy and trim_raw not in (None, ""))
+        else None
+    )
 
     source_record_id = str(row.get("source_record_id") or "").strip() or f"row-{row_number}"
     url = str(row.get("canonical_url") or "").strip() or None
@@ -264,7 +279,7 @@ def normalize_row(
     )
 
 
-def read_table(file_path: str | Path) -> tuple[list[object], list[dict[str, Any]]]:
+def read_table(file_path: str | Path) -> tuple[list[str], list[dict[str, Any]]]:
     """Read a CSV/XLSX file as (header cells, raw row dicts). No formulas run."""
     path = Path(file_path)
     if path.suffix.lower() == ".csv":
@@ -317,7 +332,10 @@ def preview_import(
     rejected: list[RowRejection] = []
     reference_date = context.observed_at_fallback.date()
     for index, raw_row in enumerate(raw_rows, start=1):
-        mapped_row = {canonical: raw_row.get(file_header) for canonical, file_header in mapping.items()}
+        mapped_row = {
+            canonical: raw_row.get(file)
+            for canonical, file in mapping.items()
+        }
         result = normalize_row(mapped_row, context, taxonomy, reference_date, index)
         if isinstance(result, ListingObservation):
             accepted.append(result)

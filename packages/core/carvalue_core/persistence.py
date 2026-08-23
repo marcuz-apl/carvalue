@@ -25,6 +25,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    select,
     text,
 )
 from sqlalchemy.engine import Engine
@@ -454,7 +455,11 @@ def new_session_factory(engine: Engine) -> sessionmaker[Session]:
     return sessionmaker(bind=engine, expire_on_commit=False)
 
 
-def _as_utc(value: datetime) -> datetime:
+def _as_utc(value: object) -> datetime:
+    """Coerce a loosely-typed timestamp to tz-aware UTC (observed_at_utc is typed
+    loose on purpose to avoid a core↔persistence import cycle)."""
+    if not isinstance(value, datetime):
+        raise TypeError(f"expected datetime, got {type(value).__name__}")
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
@@ -585,6 +590,76 @@ def upsert_listing_observation(session: Session, obs: ListingObservation) -> Ups
 
     status = "updated" if changed else "duplicate"
     return UpsertOutcome(status=status, listing_id=existing.id, price_history_appended=history_appended)
+
+
+def resolve_make(db: Session, raw: object) -> str | None:
+    """Resolve a raw make string to its canonical form (None when unknown).
+
+    Uses the same normalization as the in-memory taxonomy so import and valuation
+    paths agree on canonical values (FR-PUB-01). Queries the ``vehicle_taxonomy``
+    table, not a free-text allowlist.
+    """
+    from .taxonomy import normalize_token
+
+    if raw is None:
+        return None
+    rows = db.execute(
+        select(VehicleTaxonomy).where(
+            VehicleTaxonomy.level == "make",
+            VehicleTaxonomy.active.is_(True),
+        )
+    ).scalars().all()
+    for row in rows:
+        names = [row.canonical_name, *[str(a) for a in row.aliases_json]]
+        if any(normalize_token(raw) == normalize_token(name) for name in names):
+            return row.canonical_name
+    return None
+
+
+def resolve_model(db: Session, make_canonical: str, raw: object) -> str | None:
+    """Resolve a model name within one canonical make (None when unknown)."""
+    from .taxonomy import normalize_token
+
+    if raw is None:
+        return None
+    rows = db.execute(
+        select(VehicleTaxonomy).where(
+            VehicleTaxonomy.level == "model",
+            VehicleTaxonomy.parent_id.isnot(None),
+            VehicleTaxonomy.active.is_(True),
+        )
+    ).scalars().all()
+    for row in rows:
+        parent = db.get(VehicleTaxonomy, row.parent_id)
+        if parent is None or parent.canonical_name != make_canonical:
+            continue
+        names = [row.canonical_name, *[str(a) for a in row.aliases_json]]
+        if any(normalize_token(raw) == normalize_token(name) for name in names):
+            return row.canonical_name
+    return None
+
+
+def resolve_trim(db: Session, make_canonical: str, model_canonical: str, raw: object) -> str | None:
+    """Resolve a trim name within one canonical model (None when unknown)."""
+    from .taxonomy import normalize_token
+
+    if raw is None:
+        return None
+    rows = db.execute(
+        select(VehicleTaxonomy).where(
+            VehicleTaxonomy.level == "trim",
+            VehicleTaxonomy.parent_id.isnot(None),
+            VehicleTaxonomy.active.is_(True),
+        )
+    ).scalars().all()
+    for row in rows:
+        parent = db.get(VehicleTaxonomy, row.parent_id)
+        if parent is None or parent.canonical_name != model_canonical:
+            continue
+        names = [row.canonical_name, *[str(a) for a in row.aliases_json]]
+        if any(normalize_token(raw) == normalize_token(name) for name in names):
+            return row.canonical_name
+    return None
 
 
 def dump_json_stable(value: Any) -> str:

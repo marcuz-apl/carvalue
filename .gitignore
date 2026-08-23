@@ -56,3 +56,8 @@ temp/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Python build artifacts
+*.egg-info/
+__pycache__/
+.pytest_cache/

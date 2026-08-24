@@ -164,6 +164,7 @@ def test_visitor_feedback_submission(tmp_path: Path) -> None:
             id=42,
             occurred_at=datetime.now(UTC),
             event_type="valuation",
+            input_json={"make": "ford", "model": "ranger"},
             confidence_label="high",
             comparables_count=12,
             interval_level=80,

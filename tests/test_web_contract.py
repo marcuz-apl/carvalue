@@ -27,15 +27,19 @@ def web_e2e_db(tmp_path: Path) -> str:
     do_init_db(db_url=db_url)
 
     # Train and save baseline model
-    model = OLSBaseline(reference_date=date(2026, 8, 20))
-    train_data = [
-        {"model_year": 2022, "mileage_km": 30000, "asking_price_cad_cents": 3200000},
-        {"model_year": 2022, "mileage_km": 40000, "asking_price_cad_cents": 3000000},
-        {"model_year": 2021, "mileage_km": 50000, "asking_price_cad_cents": 2800000},
-        {"model_year": 2021, "mileage_km": 60000, "asking_price_cad_cents": 2600000},
-        {"model_year": 2020, "mileage_km": 70000, "asking_price_cad_cents": 2400000},
-    ]
-    model.fit(train_data)
+    import pandas as pd
+
+    df = pd.DataFrame(
+        [
+            {"model_year": 2022, "mileage_km": 30000, "price_cad": 32000.0},
+            {"model_year": 2022, "mileage_km": 40000, "price_cad": 30000.0},
+            {"model_year": 2021, "mileage_km": 50000, "price_cad": 28000.0},
+            {"model_year": 2021, "mileage_km": 60000, "price_cad": 26000.0},
+            {"model_year": 2020, "mileage_km": 70000, "price_cad": 24000.0},
+        ]
+    )
+    model = OLSBaseline()
+    model.fit(df, reference_date=date(2026, 8, 20))
     artifact_file = tmp_path / "ols_model.joblib"
     model.save(str(artifact_file))
 
@@ -51,6 +55,7 @@ def web_e2e_db(tmp_path: Path) -> str:
             enabled=True,
         )
         session.add(source)
+        session.flush()
 
         # Seed Active ModelVersion
         m = ModelVersion(
@@ -63,6 +68,7 @@ def web_e2e_db(tmp_path: Path) -> str:
             model_hash_sha256="test_hash_sha256",
         )
         session.add(m)
+        session.flush()
 
         # Seed 5 Active Comparables for Ford Ranger
         for i in range(5):
@@ -77,6 +83,7 @@ def web_e2e_db(tmp_path: Path) -> str:
                 model_year=2022,
                 mileage_km=40000 + i * 1000,
                 asking_price_cad_cents=3100000,
+                price_observed_at=datetime(2026, 8, 15, tzinfo=UTC),
                 is_active=True,
                 first_seen_at=datetime(2026, 8, 15, tzinfo=UTC),
                 last_seen_at=datetime(2026, 8, 15, tzinfo=UTC),

@@ -41,17 +41,16 @@ def hardened_db(tmp_path: Path) -> str:
     with SessionLocal() as session:
         # Seed Source
         source = Source(
-            id=1,
             name="test_source",
             source_type="api_feed",
             permission_status="approved",
             enabled=True,
         )
         session.add(source)
+        session.flush()
 
         # Seed Active Model
         m = ModelVersion(
-            id=1,
             algorithm="ols_baseline",
             status="active",
             artifact_path="/tmp/m.joblib",
@@ -61,11 +60,11 @@ def hardened_db(tmp_path: Path) -> str:
             model_hash_sha256="hash123",
         )
         session.add(m)
+        session.flush()
 
         # Seed Listing & Price History
         listing = Listing(
-            id=10,
-            source_id=1,
+            source_id=source.id,
             source_record_id="rec-1",
             fingerprint_sha256="fp-1",
             make="ford",
@@ -73,13 +72,15 @@ def hardened_db(tmp_path: Path) -> str:
             model_year=2022,
             mileage_km=30000,
             asking_price_cad_cents=3200000,
+            price_observed_at=datetime(2026, 8, 15, tzinfo=UTC),
             first_seen_at=datetime(2026, 8, 15, tzinfo=UTC),
             last_seen_at=datetime(2026, 8, 15, tzinfo=UTC),
         )
         session.add(listing)
+        session.flush()
 
         ph = ListingPriceHistory(
-            listing_id=10,
+            listing_id=listing.id,
             asking_price_cad_cents=3200000,
             observed_at=datetime(2026, 8, 15, tzinfo=UTC),
         )
@@ -88,38 +89,32 @@ def hardened_db(tmp_path: Path) -> str:
         # Seed Raw Observations: one recent, one expired (100 days old)
         now = datetime.now(UTC)
         raw_recent = RawObservation(
-            source_id=1,
+            source_id=source.id,
             source_record_id="rec-recent",
             fetched_at=now - timedelta(days=10),
             content_checksum_sha256="recent_hash",
         )
         raw_expired = RawObservation(
-            source_id=1,
+            source_id=source.id,
             source_record_id="rec-old",
             fetched_at=now - timedelta(days=100),
             content_checksum_sha256="old_hash",
         )
         session.add_all([raw_recent, raw_expired])
 
-        # Seed Admin Sessions: one active, one expired (45 days old)
-        admin = AdminUser(
-            id=1,
-            email="admin@carvalue.ca",
-            password_hash=hash_password("password123"),
-            is_active=True,
-        )
-        session.add(admin)
-        session.flush()
+        # Use existing Admin User from do_init_db
+        admin = session.execute(select(AdminUser)).scalars().first()
+        admin_id = admin.id if admin else 1
 
         sess_active = AdminSession(
-            admin_user_id=1,
+            admin_user_id=admin_id,
             token_hash=hash_token("tok_active"),
             csrf_token_hash=hash_token("csrf_active"),
             created_at=now,
             expires_at=now + timedelta(hours=12),
         )
         sess_expired = AdminSession(
-            admin_user_id=1,
+            admin_user_id=admin_id,
             token_hash=hash_token("tok_expired"),
             csrf_token_hash=hash_token("csrf_expired"),
             created_at=now - timedelta(days=50),

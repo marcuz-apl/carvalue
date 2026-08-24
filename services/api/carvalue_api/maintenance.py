@@ -29,7 +29,6 @@ from carvalue_core.persistence import (
     ModelVersion,
     RawObservation,
     Source,
-    SourcePolicy,
 )
 from carvalue_core.security import record_audit_event
 

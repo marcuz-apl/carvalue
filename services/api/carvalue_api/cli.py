@@ -1,33 +1,26 @@
-"""Command-line entry point for the CarValue modular monolith (M0).
+"""Command-line entry point for the CarValue modular monolith (M0–M7).
 
-Wires together database initialization, server startup, and seed data. The
-worker/scheduler lives in ``services/worker`` and is a separate process; this
-CLI only manages the API side of things.
+Wires together database initialization, server startup, seed data, database backups,
+restoration, and retention purge jobs.
 """
 
 from __future__ import annotations
 
 import argparse
-import secrets
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import select
+
+import carvalue_api as api
 from carvalue_core.persistence import (
     AdminUser,
     VehicleTaxonomy,
     new_session_factory,
 )
-from sqlalchemy import select
-
-import carvalue_api as api
-
-
-def _bcrypt(token: str) -> str:  # minimal stand-in; swap for bcrypt in M5
-    import hashlib
-
-    return hashlib.sha256(f"m0-dev-only:{token}".encode()).hexdigest()
+from carvalue_core.security import hash_password
 
 
 def _seed_db(session: Any, *, db_path: str | Path) -> None:
@@ -72,9 +65,7 @@ def _seed_db(session: Any, *, db_path: str | Path) -> None:
 
     admin_count = session.execute(select(AdminUser.id)).scalars().all()
     if not admin_count:
-        salt = secrets.token_hex(16)
-        token = secrets.token_hex(32)
-        pw_hash = f"$2b$12${salt}${_bcrypt(token)}"
+        pw_hash = hash_password("CarValueAdmin2026!")
         session.add(
             AdminUser(
                 email="admin@carvalue.local",
@@ -111,6 +102,39 @@ def do_run_server(host: str = "127.0.0.1", port: int = 8000, db_url: str | None 
     server.run()
 
 
+def do_backup_db(db_url: str, dest_path: str) -> None:
+    from carvalue_api.maintenance import backup_database
+
+    info = backup_database(db_url=db_url, backup_dest_path=dest_path)
+    print(f"Database backed up successfully to: {info['destination']}")
+    print(f"Size: {info['file_size_bytes']} bytes, SHA256: {info['checksum_sha256']}")
+
+
+def do_restore_db(backup_path: str, db_url: str) -> None:
+    from carvalue_api.maintenance import restore_database
+
+    info = restore_database(backup_src_path=backup_path, target_db_url=db_url)
+    print(f"Database restored successfully from: {info['restored_from']}")
+    print(f"Integrity status: {info['integrity']}")
+
+
+def do_purge_retention(db_url: str, raw_days: int = 90, session_days: int = 30) -> None:
+    from carvalue_api.maintenance import purge_expired_retention
+
+    engine = api.persistence.make_engine(db_url)
+    SessionLocal = new_session_factory(engine)
+    with SessionLocal() as session:
+        counts = purge_expired_retention(
+            session=session,
+            raw_observation_retention_days=raw_days,
+            expired_session_retention_days=session_days,
+        )
+    engine.dispose()
+    print("Retention purge complete:")
+    print(f"  Raw observations purged: {counts['raw_observations_purged']}")
+    print(f"  Expired admin sessions purged: {counts['admin_sessions_purged']}")
+
+
 def db_path_from_url(db_url: str) -> str:
     """Extract the filesystem path from a ``sqlite:///`` URL."""
     prefix = "sqlite:///"
@@ -133,6 +157,24 @@ def main(argv: Sequence[str] | None = None) -> None:
     run_parser.add_argument("--port", type=int, default=8000)
     run_parser.add_argument("--db-url", default=None)
     run_parser.set_defaults(func=lambda a: do_run_server(host=a.host, port=a.port, db_url=a.db_url))
+
+    backup_parser = subparsers.add_parser("backup-db", help="create point-in-time SQLite snapshot")
+    backup_parser.add_argument("--db-url", default="sqlite:///./carvalue.db")
+    backup_parser.add_argument("--dest", required=True, help="Destination backup file path")
+    backup_parser.set_defaults(func=lambda a: do_backup_db(db_url=a.db_url, dest_path=a.dest))
+
+    restore_parser = subparsers.add_parser("restore-db", help="restore SQLite from backup snapshot")
+    restore_parser.add_argument("--src", required=True, help="Source backup file path")
+    restore_parser.add_argument("--db-url", default="sqlite:///./carvalue.db")
+    restore_parser.set_defaults(func=lambda a: do_restore_db(backup_path=a.src, db_url=a.db_url))
+
+    purge_parser = subparsers.add_parser("purge-retention", help="purge raw content & expired sessions")
+    purge_parser.add_argument("--db-url", default="sqlite:///./carvalue.db")
+    purge_parser.add_argument("--raw-days", type=int, default=90)
+    purge_parser.add_argument("--session-days", type=int, default=30)
+    purge_parser.set_defaults(
+        func=lambda a: do_purge_retention(db_url=a.db_url, raw_days=a.raw_days, session_days=a.session_days)
+    )
 
     args = parser.parse_args(argv)
     args.func(args)

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 from datetime import date
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from typing import NewType
 
 #: Typed integer cents of Canadian dollars. Transparent at runtime (NewType),

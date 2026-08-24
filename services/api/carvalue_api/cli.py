@@ -49,22 +49,24 @@ def _seed_db(session: Any, *, db_path: str | Path) -> None:
                 parent_ids[node.canonical_name] = int(row.id)  # type: ignore[arg-type]
         for node in seed_pickup_taxonomy():
             if node.level == "model":
+                parent_id = parent_ids.get(node.parent_canonical) if node.parent_canonical else None
                 row = VehicleTaxonomy(
                     level="model",
                     canonical_name=node.canonical_name,
                     aliases_json=list(node.aliases),
-                    parent_id=parent_ids.get(node.parent_canonical) if node.parent_canonical else None,
+                    parent_id=parent_id,
                 )
                 session.add(row)
                 session.flush()
                 parent_ids[node.canonical_name] = int(row.id)  # type: ignore[arg-type]
         for node in seed_pickup_taxonomy():
             if node.level == "trim":
+                parent_id = parent_ids.get(node.parent_canonical) if node.parent_canonical else None
                 row = VehicleTaxonomy(
                     level="trim",
                     canonical_name=node.canonical_name,
                     aliases_json=list(node.aliases),
-                    parent_id=parent_ids.get(node.parent_canonical) if node.parent_canonical else None,
+                    parent_id=parent_id,
                 )
                 session.add(row)
 
@@ -89,9 +91,7 @@ def do_init_db(db_url: str = "sqlite:///./carvalue.db") -> None:
     Path(db_path_from_url(db_url)).touch(exist_ok=True)
     from carvalue_api.migrations import run_migrations
 
-    marker = run_migrations(
-        db_url=db_url, target_dir=str(Path(db_path_from_url(db_url)).parent)
-    )
+    marker = run_migrations(db_url=db_url, target_dir=str(Path(db_path_from_url(db_url)).parent))
     SessionLocal = new_session_factory(api.persistence.make_engine(db_url))
     with SessionLocal() as session:  # type: ignore[union-attr]
         _seed_db(session, db_path=db_url)
@@ -114,13 +114,11 @@ def do_run_server(host: str = "127.0.0.1", port: int = 8000, db_url: str | None 
 def db_path_from_url(db_url: str) -> str:
     """Extract the filesystem path from a ``sqlite:///`` URL."""
     prefix = "sqlite:///"
-    return db_url[len(prefix):] if db_url.startswith(prefix) else "carvalue.db"
+    return db_url[len(prefix) :] if db_url.startswith(prefix) else "carvalue.db"
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(
-        prog="carvalue", description="CarValue modular monolith CLI"
-    )
+    parser = argparse.ArgumentParser(prog="carvalue", description="CarValue modular monolith CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init_parser = subparsers.add_parser(
@@ -134,9 +132,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     run_parser.add_argument("--host", default="127.0.0.1")
     run_parser.add_argument("--port", type=int, default=8000)
     run_parser.add_argument("--db-url", default=None)
-    run_parser.set_defaults(
-        func=lambda a: do_run_server(host=a.host, port=a.port, db_url=a.db_url)
-    )
+    run_parser.set_defaults(func=lambda a: do_run_server(host=a.host, port=a.port, db_url=a.db_url))
 
     args = parser.parse_args(argv)
     args.func(args)

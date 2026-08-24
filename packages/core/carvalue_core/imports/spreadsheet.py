@@ -241,9 +241,7 @@ def normalize_row(
     if make is None or model is None:
         return RowRejection(row_number=row_number, code=ReasonCode.UNRECOGNIZED_MAKE_MODEL)
 
-    observed_at, _ = _coerce_datetime(
-        row.get("observed_at"), context.observed_at_fallback
-    )
+    observed_at, _ = _coerce_datetime(row.get("observed_at"), context.observed_at_fallback)
 
     drivetrain_raw = normalize_token(str(row.get("drivetrain") or ""))
     drivetrain = DRIVETRAIN_ALIASES.get(drivetrain_raw) if drivetrain_raw else None
@@ -332,10 +330,7 @@ def preview_import(
     rejected: list[RowRejection] = []
     reference_date = context.observed_at_fallback.date()
     for index, raw_row in enumerate(raw_rows, start=1):
-        mapped_row = {
-            canonical: raw_row.get(file)
-            for canonical, file in mapping.items()
-        }
+        mapped_row = {canonical: raw_row.get(file) for canonical, file in mapping.items()}
         result = normalize_row(mapped_row, context, taxonomy, reference_date, index)
         if isinstance(result, ListingObservation):
             accepted.append(result)
@@ -359,8 +354,14 @@ class CommitSummary:
     duplicate: int = 0
 
 
-def commit_preview(session: Any, preview: ImportPreview) -> CommitSummary:
-    """Idempotently upsert every accepted observation from a valid preview."""
+def commit_preview(
+    session: Any, preview: ImportPreview, run_id: int | None = None
+) -> CommitSummary:
+    """Idempotently upsert every accepted observation from a valid preview.
+
+    ``run_id`` links committed raw content to its crawl_run (M2 provenance);
+    ``None`` marks a manual import without a scheduled collection run.
+    """
     from ..persistence import upsert_listing_observation
 
     if not preview.is_committable:
@@ -368,7 +369,7 @@ def commit_preview(session: Any, preview: ImportPreview) -> CommitSummary:
 
     summary = CommitSummary()
     for observation in preview.accepted_observations:
-        outcome = upsert_listing_observation(session, observation)
+        outcome = upsert_listing_observation(session, observation, run_id=run_id)
         if outcome.status == "accepted":
             summary = CommitSummary(
                 accepted=summary.accepted + 1,

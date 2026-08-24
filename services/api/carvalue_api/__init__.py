@@ -1,78 +1,83 @@
 """CarValue application API (FastAPI).
 
-Public valuation endpoints and (later) admin routes. The domain logic lives in
-``carvalue_core``; this package owns HTTP boundaries, settings, sessions and the
-Alembic migration entry point.
+Public valuation endpoints and admin routes. Domain logic lives in ``carvalue_core``;
+this package owns HTTP boundaries, settings, sessions, and CLI commands.
 """
 
 from __future__ import annotations
 
-import json
 import logging
-from collections.abc import Sequence
-from datetime import date, datetime
-from pathlib import Path
+import time
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from datetime import UTC, date, datetime
 from typing import Any
 
-from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select
-from sqlalchemy.orm import Session as SqlAlchemySession
-
 import carvalue_core.persistence as persistence
-from carvalue_core.confidence import ConfidenceDecision, decide_confidence
-from carvalue_core.listings import ListingObservation
+from carvalue_core.confidence import ConfidenceLabel
+from carvalue_core.models import ValuationModel, evaluate_prediction
 from carvalue_core.persistence import (
-    AdminUser,
     AuditEvent,
+    DataQualityIssue,
     DatasetSnapshot,
+    Listing,
     ListingPriceHistory,
     ModelVersion,
     Source,
-    UtcTimestamp,
+    ValuationEvent,
     VehicleTaxonomy,
-    new_session_factory,
+    resolve_make,
+    resolve_model,
+    resolve_trim,
 )
-from carvalue_core.taxonomy import PickupTaxonomy
+from fastapi import FastAPI, Request, status
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session as SqlAlchemySession
+from sqlalchemy.orm import sessionmaker
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Settings and app wiring
+# Settings and app wiring (Lifespan)
 # ---------------------------------------------------------------------------
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """Ensure database exists on startup."""
+    if app.state.db_url:
+        engine = persistence.make_engine(app.state.db_url)
+        try:
+            persistence.Base.metadata.create_all(bind=engine)
+        except Exception as exc:
+            logger.warning("Database create_all skipped: %s", exc)
+        finally:
+            engine.dispose()
+    yield
+
 
 app = FastAPI(
     title="CarValue API",
     description="Explainable used-pickup asking-price valuator for Alberta, Canada.",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
-app.state.db_url: str = ""  # set by the entry point
+app.state.db_url = "sqlite:///./carvalue.db"  # default; overwritten by cli/tests
 
 
 def get_db() -> SqlAlchemySession:
-    from sqlalchemy.orm import sessionmaker
-
     engine = persistence.make_engine(app.state.db_url)
-    SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
-    return SessionLocal()
-
-
-@app.on_event("startup")
-async def _startup() -> None:
-    # Ensure the database exists (migrations are run by ``carvalue init-db``).
-    with get_db() as session:
-        try:
-            session.execute(persistence.Base.metadata.create_all(bind=engine))
-        except Exception as exc:
-            logger.warning("database already exists, skipping create_all: %s", exc)
+    session_factory = sessionmaker(bind=engine, expire_on_commit=False)
+    return session_factory()
 
 
 # ---------------------------------------------------------------------------
 # Pydantic request/response models
 # ---------------------------------------------------------------------------
+
 
 class ValuationRequest(BaseModel):
     make: str = Field(..., min_length=1)
@@ -87,29 +92,33 @@ class ValuationRequest(BaseModel):
     @classmethod
     def _non_empty(cls, v: Any) -> Any:
         if isinstance(v, str):
-            return v.strip()
+            val = v.strip()
+            if val:
+                return val
         raise ValueError("must be a non-empty string")
 
 
 class ValuationResponse(BaseModel):
-    estimate_cad: int  # rounded to nearest $100
+    estimate_cad: int  # rounded to nearest $100 CAD
     interval_low_cad: int
     interval_high_cad: int
     confidence_label: str  # high | medium | low | insufficient_data
     comparables_count: int
     data_freshness_days: float
     valuation_date: date
+    disclaimer: str = "This is an estimate, not a professional appraisal."
 
 
 class TaxonomyResponse(BaseModel):
     makes: list[str] = Field(default_factory=list)
     models_by_make: dict[str, list[str]] = Field(default_factory=dict)
-    trims_by_model: dict[tuple[str, str], list[str]] = Field(default_factory=dict)
+    trims_by_model: dict[str, list[str]] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
 # Public routes
 # ---------------------------------------------------------------------------
+
 
 @app.get("/healthz", tags=["system"])
 async def health_check() -> dict[str, bool]:
@@ -128,177 +137,234 @@ async def valuation(request: ValuationRequest, req: Request) -> ValuationRespons
     The result is an **asking-price estimate**, not an appraisal or guaranteed
     sale price. It includes an 80% prediction interval, confidence label,
     comparable count, data freshness, and a clear disclaimer. Out-of-distribution
-    inputs are refused with ``Insufficient Data`` rather than fabricated precision.
-
-    Response times: P95 ≤ 3 s cached, ≤ 5 s uncached (FR-PUB-01/FR-PUB-02).
+    inputs are refused with ``insufficient_data`` rather than fabricated precision.
     """
+    start_time = time.perf_counter()
     db = get_db()
     try:
-        # Resolve taxonomy and load the active model artifact.
-        make_canonical = persistence.resolve_make(db, request.make)
-        if not make_canonical:
-            return ValuationResponse(
-                estimate_cad=0,
-                interval_low_cad=0,
-                interval_high_cad=0,
-                confidence_label="insufficient_data",
-                comparables_count=0,
-                data_freshness_days=float("inf"),
-                valuation_date=date.today(),
-            )
+        # 1. Parse valuation date
+        ref_header = req.headers.get("x-valuation-date")
+        if ref_header:
+            try:
+                val_date = date.fromisoformat(ref_header[:10])
+            except ValueError:
+                val_date = date.today()
+        else:
+            val_date = date.today()
 
-        model_canonical = persistence.resolve_model(db, make_canonical, request.model)
-        if not model_canonical:
-            return ValuationResponse(
-                estimate_cad=0,
-                interval_low_cad=0,
-                interval_high_cad=0,
-                confidence_label="insufficient_data",
-                comparables_count=0,
-                data_freshness_days=float("inf"),
-                valuation_date=date.today(),
-            )
-
-        trim_canonical = persistence.resolve_trim(db, make_canonical, model_canonical, request.trim)
-        drivetrain_canonical = (
-            request.drivetrain if request.drivetrain in ("2wd", "4wd") else None
+        # 2. Resolve taxonomy
+        make_canonical = resolve_make(db, request.make)
+        model_canonical = (
+            resolve_model(db, make_canonical, request.model) if make_canonical else None
         )
-        seller_type_canonical = request.seller_type or None
+        trim_canonical = (
+            resolve_trim(db, make_canonical, model_canonical, request.trim)
+            if (make_canonical and model_canonical and request.trim)
+            else None
+        )
+        drivetrain_canonical = request.drivetrain if request.drivetrain in ("2wd", "4wd") else None
+        seller_type_canonical = (
+            request.seller_type if request.seller_type in ("dealer", "private") else None
+        )
 
-        # Load the active model artifact.
+        # 3. Load active model
         model_row = db.execute(
             select(ModelVersion).where(ModelVersion.status == "active").limit(1)
         ).scalar_one_or_none()
-        if not model_row:
+
+        if not make_canonical or not model_canonical or not model_row:
+            latency_ms = int((time.perf_counter() - start_time) * 1000)
+            _log_valuation_event(
+                db=db,
+                request=request,
+                req=req,
+                model_version_id=model_row.id if model_row else None,
+                confidence_label=ConfidenceLabel.INSUFFICIENT_DATA,
+                comparables_count=0,
+                latency_ms=latency_ms,
+            )
             return ValuationResponse(
                 estimate_cad=0,
                 interval_low_cad=0,
                 interval_high_cad=0,
-                confidence_label="insufficient_data",
+                confidence_label=ConfidenceLabel.INSUFFICIENT_DATA,
                 comparables_count=0,
                 data_freshness_days=float("inf"),
-                valuation_date=date.today(),
+                valuation_date=val_date,
             )
 
-        artifact_path = Path(model_row.artifact_path)
-        feature_schema: dict[str, Any] = {}
-        model_fn = None  # type: ignore[assignment]
-        if artifact_path.suffix == ".pkl":
-            import joblib
-
-            model_fn = joblib.load(artifact_path)
-            feature_schema = {"version": "v1"}
-        elif artifact_path.suffix == ".json":
-            with artifact_path.open("r", encoding="utf-8") as handle:
-                data = json.load(handle)
-            if isinstance(data, dict):
-                model_fn = data.get("model_fn")  # type: ignore[assignment]
-                feature_schema = {"version": "v1"}
-
-        if not callable(model_fn):
+        # 4. Load model artifact
+        try:
+            model = ValuationModel.load(model_row.artifact_path)
+        except Exception as exc:
+            logger.error("Failed to load model artifact %s: %s", model_row.artifact_path, exc)
             return ValuationResponse(
                 estimate_cad=0,
                 interval_low_cad=0,
                 interval_high_cad=0,
-                confidence_label="insufficient_data",
+                confidence_label=ConfidenceLabel.INSUFFICIENT_DATA,
                 comparables_count=0,
                 data_freshness_days=float("inf"),
-                valuation_date=date.today(),
+                valuation_date=val_date,
             )
 
-        # Compute vehicle age at the valuation date (FR-ML-01).
-        from carvalue_core.units import (
-            DAYS_PER_YEAR,
-            MODEL_YEAR_ANCHOR_DAY,
-            MODEL_YEAR_ANCHOR_MONTH,
-        )
-
-        anchor = date(request.year, MODEL_YEAR_ANCHOR_MONTH, MODEL_YEAR_ANCHOR_DAY)
-        reference_date = req.headers.get("x-valuation-date", str(date.today()))
-        valuation_date = datetime.fromisoformat(reference_date.replace("Z", "+00:00"))
-        vehicle_age_years = max((valuation_date - anchor).days / DAYS_PER_YEAR, 0.0)
-
-        # Query active comparables for this make/model/trim/drivetrain/seller_type.
-        query = (
+        # 5. Query active comparables
+        comp_query = (
             select(ListingPriceHistory)
-            .join(Listing)
+            .join(Listing, Listing.id == ListingPriceHistory.listing_id)
             .where(
                 Listing.make == make_canonical,
                 Listing.model == model_canonical,
-                Listing.trim == trim_canonical if trim_canonical else None,
-                Listing.drivetrain == drivetrain_canonical if drivetrain_canonical else None,
-                Listing.seller_type == seller_type_canonical if seller_type_canonical else None,
-                Listing.is_active == True,  # noqa: E712
+                Listing.is_active.is_(True),
             )
         )
+        all_comps = db.execute(comp_query).scalars().all()
+        comps = [c for c in all_comps if c.observed_at.date() <= val_date]
+        comparables_count = len(comps)
 
-        rows = db.execute(query).scalars()
-        comparables: list[ListingPriceHistory] = []
-        for row in rows:
-            if row.observed_at_utc.date() <= valuation_date:
-                comparables.append(row)
+        if comps:
+            latest_observed = max(c.observed_at.date() for c in comps)
+            data_freshness_days = max(float((val_date - latest_observed).days), 0.0)
+        else:
+            data_freshness_days = float("inf")
 
-        # Compute the point estimate and interval.
-        point_estimate_cad, low_cad_cents, high_cad_cents = model_fn(
-            vehicle_age_years, request.mileage_km, trim_canonical or "", drivetrain_canonical or "", seller_type_canonical or ""
-        )  # type: ignore[call-arg]
+        # 6. Predict point and 80% interval
+        features = {
+            "model_year": request.year,
+            "mileage_km": request.mileage_km,
+            "trim": trim_canonical,
+            "drivetrain": drivetrain_canonical,
+            "seller_type": seller_type_canonical,
+            "valuation_date": val_date,
+        }
+        point_raw, low_raw, high_raw = model.predict(features)
 
-        if not isinstance(point_estimate_cad, int):
-            point_estimate_cad = int(round(point_estimate_cad))
-        low_cad_cents = int(low_cad_cents)
-        high_cad_cents = int(high_cad_cents)
-
-        # Confidence rules (FR-ML-10).
-        from carvalue_core.confidence import EvidenceConfig, ModelBounds, out_of_training_domain, relative_interval_width
-
-        bounds = ModelBounds(
-            min_model_year=2019, max_model_year=2023, min_mileage_km=0, max_mileage_km=800_000
+        # 7. Evaluate confidence / refusal
+        decision = evaluate_prediction(
+            point_cad=point_raw,
+            low_cad=low_raw,
+            high_cad=high_raw,
+            features=features,
+            model=model,
+            comparables_count=comparables_count,
+            data_freshness_days=data_freshness_days,
         )
-        ood = out_of_training_domain(bounds, request.year, request.mileage_km)
 
-        interval_rel_width = relative_interval_width(low_cad_cents, point_estimate_cad, high_cad_cents)
-        decision = decide_confidence(
-            comparables_count=len(comparables),
-            data_freshness_days=(valuation_date.date() - date.min()).days / 365.25,
-            interval_rel_width=interval_rel_width,
-            ood=ood,
+        if decision.is_refused:
+            est_cad = 0
+            low_cad = 0
+            high_cad = 0
+        else:
+            est_cad = int(round(point_raw / 100.0) * 100)
+            low_cad = int(round(low_raw / 100.0) * 100)
+            high_cad = int(round(high_raw / 100.0) * 100)
+
+        latency_ms = int((time.perf_counter() - start_time) * 1000)
+
+        # 8. Record telemetry
+        _log_valuation_event(
+            db=db,
+            request=request,
+            req=req,
+            model_version_id=model_row.id,
+            confidence_label=decision.label,
+            comparables_count=comparables_count,
+            latency_ms=latency_ms,
         )
 
         return ValuationResponse(
-            estimate_cad=persistence.round_cad_to_nearest_100(point_estimate_cad),
-            interval_low_cad=low_cad_cents,
-            interval_high_cad=high_cad_cents,
+            estimate_cad=est_cad,
+            interval_low_cad=low_cad,
+            interval_high_cad=high_cad,
             confidence_label=decision.label,
-            comparables_count=len(comparables),
-            data_freshness_days=(valuation_date.date() - date.min()).days / 365.25,
-            valuation_date=valuation_date.date(),
+            comparables_count=comparables_count,
+            data_freshness_days=round(data_freshness_days, 1),
+            valuation_date=val_date,
         )
-
     finally:
         db.close()
+
+
+def _log_valuation_event(
+    db: SqlAlchemySession,
+    request: ValuationRequest,
+    req: Request,
+    model_version_id: int | None,
+    confidence_label: str,
+    comparables_count: int,
+    latency_ms: int,
+) -> None:
+    """Record a privacy-minimized visitor event (FR-OBS-01)."""
+    try:
+        ua = req.headers.get("user-agent", "").lower()
+        device = "mobile" if "mobile" in ua else "desktop"
+        event = ValuationEvent(
+            occurred_at=datetime.now(UTC),
+            event_type="valuation",
+            input_json={
+                "make": request.make,
+                "model": request.model,
+                "year": request.year,
+                "mileage_km": request.mileage_km,
+                "trim": request.trim,
+                "drivetrain": request.drivetrain,
+                "seller_type": request.seller_type,
+            },
+            model_version_id=model_version_id,
+            confidence_label=confidence_label,
+            comparables_count=comparables_count,
+            interval_level=80,
+            latency_ms=latency_ms,
+            device_class=device,
+            visitor_id=req.headers.get("x-visitor-id"),
+        )
+        db.add(event)
+        db.commit()
+    except Exception as exc:
+        logger.warning("Failed to record valuation event: %s", exc)
 
 
 @app.get("/v1/taxonomy", response_model=TaxonomyResponse)
 async def taxonomy() -> TaxonomyResponse:
     """Return the supported make/model/trim reference data."""
-    nodes = persistence.seed_pickup_taxonomy().nodes
-    makes = sorted({n.canonical_name for n in nodes if n.level == "make"})
-    models_by_make: dict[str, list[str]] = {}
-    trims_by_model: dict[tuple[str, str], list[str]] = {}
-    for node in nodes:
-        if node.level == "model":
-            make = models_by_make.setdefault(node.parent_canonical, [])
-            make.append(node.canonical_name)
-        elif node.level == "trim":
-            key = (node.parent_canonical, node.parent_canonical)  # placeholder; real trim resolution lives in persistence
-            trims_by_model.setdefault(key, []).append(node.canonical_name)
-    return TaxonomyResponse(makes=makes, models_by_make=models_by_make, trims_by_model=trims_by_model)
+    db = get_db()
+    try:
+        nodes = (
+            db.execute(select(VehicleTaxonomy).where(VehicleTaxonomy.active.is_(True)))
+            .scalars()
+            .all()
+        )
+
+        makes = sorted({n.canonical_name for n in nodes if n.level == "make"})
+        models_by_make: dict[str, list[str]] = {}
+        trims_by_model: dict[str, list[str]] = {}
+
+        for n in nodes:
+            if n.level == "model" and n.parent_id:
+                parent = db.get(VehicleTaxonomy, n.parent_id)
+                if parent:
+                    models_by_make.setdefault(parent.canonical_name, []).append(n.canonical_name)
+            elif n.level == "trim" and n.parent_id:
+                model_parent = db.get(VehicleTaxonomy, n.parent_id)
+                if model_parent and model_parent.parent_id:
+                    make_parent = db.get(VehicleTaxonomy, model_parent.parent_id)
+                    if make_parent:
+                        key = f"{make_parent.canonical_name}:{model_parent.canonical_name}"
+                        trims_by_model.setdefault(key, []).append(n.canonical_name)
+
+        return TaxonomyResponse(
+            makes=makes,
+            models_by_make=models_by_make,
+            trims_by_model=trims_by_model,
+        )
+    finally:
+        db.close()
 
 
 # ---------------------------------------------------------------------------
-# Admin routes (authentication and CSRF are wired by the entry point; these
-# endpoints enforce role protection via ``request.state.user``.)
+# Admin routes
 # ---------------------------------------------------------------------------
+
 
 @app.get("/admin/audit", tags=["admin"])
 async def audit_log() -> list[dict[str, Any]]:
@@ -349,7 +415,7 @@ async def list_models() -> list[dict[str, Any]]:
                 "algorithm": row.algorithm,
                 "status": row.status,
                 "trained_at_utc": row.trained_at_utc.isoformat(),
-                "metrics_json": json.loads(json.dumps(row.metrics_json)),  # copy for JSON response
+                "metrics_json": row.metrics_json,
             }
             for row in rows
         ]
@@ -366,7 +432,7 @@ async def admin_taxonomy() -> list[dict[str, Any]]:
             {
                 "level": row.level,
                 "canonical_name": row.canonical_name,
-                "aliases_json": json.loads(json.dumps(row.aliases_json)),
+                "aliases_json": row.aliases_json,
                 "active": row.active,
             }
             for row in rows
@@ -384,8 +450,12 @@ async def list_snapshots() -> list[dict[str, Any]]:
             {
                 "label": row.label,
                 "row_count": row.row_count,
-                "min_observed_at_utc": row.min_observed_at.isoformat(),
-                "max_observed_at_utc": row.max_observed_at.isoformat(),
+                "min_observed_at_utc": (
+                    row.min_observed_at.isoformat() if row.min_observed_at else None
+                ),
+                "max_observed_at_utc": (
+                    row.max_observed_at.isoformat() if row.max_observed_at else None
+                ),
             }
             for row in rows
         ]
@@ -397,12 +467,8 @@ async def list_snapshots() -> list[dict[str, Any]]:
 async def list_listings(limit: int = 100, offset: int = 0) -> dict[str, Any]:
     db = get_db()
     try:
-        total = db.execute(
-            select(persistence.Integer).select_from(Listing).count()
-        ).scalar_one()
-        rows = db.execute(
-            select(Listing).offset(offset).limit(limit),
-        ).scalars().all()
+        total = db.execute(select(func.count(Listing.id))).scalar_one()
+        rows = db.execute(select(Listing).offset(offset).limit(limit)).scalars().all()
         return {
             "total": int(total),
             "listings": [
@@ -427,14 +493,21 @@ async def list_listings(limit: int = 100, offset: int = 0) -> dict[str, Any]:
 async def listing_price_history(listing_id: int) -> dict[str, Any]:
     db = get_db()
     try:
-        row = db.execute(
-            select(ListingPriceHistory).where(ListingPriceHistory.listing_id == listing_id),
-        ).scalars().all()
+        rows = (
+            db.execute(
+                select(ListingPriceHistory).where(ListingPriceHistory.listing_id == listing_id)
+            )
+            .scalars()
+            .all()
+        )
         return {
             "listing_id": int(listing_id),
             "history": [
-                {"observed_at_utc": r.observed_at.isoformat(), "asking_price_cad_cents": int(r.asking_price_cad_cents)}
-                for r in row
+                {
+                    "observed_at_utc": r.observed_at.isoformat(),
+                    "asking_price_cad_cents": int(r.asking_price_cad_cents),
+                }
+                for r in rows
             ],
         }
     finally:
@@ -445,11 +518,10 @@ async def listing_price_history(listing_id: int) -> dict[str, Any]:
 async def data_quality_issues(status_filter: str | None = None) -> dict[str, Any]:
     db = get_db()
     try:
-        rows = db.execute(
-            select(DataQualityIssue).where(
-                DataQualityIssue.status == status_filter if status_filter else True
-            ),
-        ).scalars().all()
+        query = select(DataQualityIssue)
+        if status_filter:
+            query = query.where(DataQualityIssue.status == status_filter)
+        rows = db.execute(query).scalars().all()
         return {
             "issues": [
                 {
@@ -469,12 +541,14 @@ async def data_quality_issues(status_filter: str | None = None) -> dict[str, Any
 async def valuation_events(limit: int = 100) -> dict[str, Any]:
     db = get_db()
     try:
-        total = db.execute(
-            select(persistence.Integer).select_from(ValuationEvent).count()
-        ).scalar_one()
-        rows = db.execute(
-            select(ValuationEvent).order_by(ValuationEvent.occurred_at.desc()).limit(limit),
-        ).scalars().all()
+        total = db.execute(select(func.count(ValuationEvent.id))).scalar_one()
+        rows = (
+            db.execute(
+                select(ValuationEvent).order_by(ValuationEvent.occurred_at.desc()).limit(limit)
+            )
+            .scalars()
+            .all()
+        )
         return {
             "total": int(total),
             "events": [
@@ -490,48 +564,3 @@ async def valuation_events(limit: int = 100) -> dict[str, Any]:
         }
     finally:
         db.close()
-
-
-# ---------------------------------------------------------------------------
-# Entry point (carvalue command)
-# ---------------------------------------------------------------------------
-
-def main() -> None:
-    import argparse
-    from pathlib import Path
-
-    parser = argparse.ArgumentParser(prog="carvalue")
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    init_parser = subparsers.add_parser("init-db", help="initialize the SQLite database with migrations and seed data")
-    init_parser.set_defaults(func=do_init_db)
-
-    run_parser = subparsers.add_parser("run", help="start the FastAPI server (default port 8000)")
-    run_parser.add_argument("--host", default="127.0.0.1")
-    run_parser.add_argument("--port", type=int, default=8000)
-    run_parser.set_defaults(func=do_run_server)
-
-    args = parser.parse_args()
-    app.state.db_url = "sqlite:///./carvalue.db"  # single-host MVP; migrations live in services/api/migrations
-    args.func()
-
-
-def do_init_db() -> None:
-    from carvalue_api.migrations import run_migrations
-
-    Path("services/api/carvalue.db").touch()
-    app.state.db_url = "sqlite:///./carvalue.db"
-    run_migrations()
-    print("database initialized with migrations and seed data")
-
-
-def do_run_server() -> None:
-    from uvicorn import Config, Server
-
-    config = Config(app=app, host="127.0.0.1", port=8000)
-    server = Server(config=config)
-    server.run()
-
-
-if __name__ == "__main__":
-    main()

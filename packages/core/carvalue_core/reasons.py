@@ -8,10 +8,10 @@ and valuation evidence rules.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class ReasonCode(str, Enum):
+class ReasonCode(StrEnum):
     # --- Row-level import / normalization rejections -----------------------
     MISSING_YEAR = "missing_year"
     MISSING_MILEAGE = "missing_mileage"
@@ -34,7 +34,8 @@ class ReasonCode(str, Enum):
 
     # --- Ingestion run outcomes (counters, not errors) ----------------------
     DUPLICATE_OBSERVATION = "duplicate_observation"
-    POSSIBLE_DUPLICATE = "possible_duplicate"  # cross-source fingerprint collision; flagged for review
+    # cross-source fingerprint collision; flagged for review
+    POSSIBLE_DUPLICATE = "possible_duplicate"
 
     # --- Valuation evidence / refusal rules ---------------------------------
     NO_ACTIVE_MODEL = "no_active_model"
@@ -55,7 +56,9 @@ _SAFE_MESSAGES: dict[ReasonCode, str] = {
     ReasonCode.PRICE_ABOVE_PLAUSIBLE_MAX: "Asking price is above the plausible maximum.",
     ReasonCode.LOCATION_NOT_ALBERTA: "Listing location is not in Alberta.",
     ReasonCode.UNRECOGNIZED_MAKE_MODEL: "Make/model combination is not a supported pickup.",
-    ReasonCode.UNRECOGNIZED_VALUE: "A field value could not be mapped to a known option; it was left blank.",
+    ReasonCode.UNRECOGNIZED_VALUE: (
+        "A field value could not be mapped to a known option; it was left blank."
+    ),
     ReasonCode.COLUMN_NOT_FOUND: "A required column could not be found in the file.",
     ReasonCode.SOURCE_PERMISSION_BLOCKED: (
         "Source permission has not been confirmed; collection stayed off."

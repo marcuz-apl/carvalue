@@ -44,7 +44,9 @@ class PickupTaxonomy:
     nodes: list[TaxonomyNode] = field(default_factory=list)
 
     def _alias_map(self, level: str) -> dict[str, TaxonomyNode]:
-        return {name: node for node in self.nodes if node.level == level for name in node.all_names()}
+        return {
+            name: node for node in self.nodes if node.level == level for name in node.all_names()
+        }
 
     def resolve_make(self, raw: object) -> str | None:
         """Resolve a raw make string to its canonical form (None when unknown)."""

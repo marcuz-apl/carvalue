@@ -1,4 +1,5 @@
 """M0 exit-gate: migrations create a fresh SQLite database from Base."""
+
 import sqlite3
 
 from carvalue_core.persistence import make_engine, new_session_factory
@@ -15,10 +16,7 @@ def test_migrations_create_fresh_database(tmp_path) -> None:
     run_migrations(db_url=f"sqlite:///{db}")
 
     con = sqlite3.connect(str(db))
-    tables = {
-        row[0]
-        for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    }
+    tables = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     con.close()
 
     expected = {

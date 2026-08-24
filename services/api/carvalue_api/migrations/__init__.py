@@ -75,7 +75,5 @@ def run_migrations(
     }
     if target_dir is not None:
         Path(target_dir).mkdir(parents=True, exist_ok=True)
-        (Path(target_dir) / "migration.marker.json").write_text(
-            str(marker), encoding="utf-8"
-        )
+        (Path(target_dir) / "migration.marker.json").write_text(str(marker), encoding="utf-8")
     return marker

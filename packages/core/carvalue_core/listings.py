@@ -27,7 +27,8 @@ class ListingObservation:
     model_year: int
     mileage_km: int
     asking_price_cad_cents: int
-    observed_at_utc: object  # datetime (tz-aware UTC); typed loosely to avoid core↔persistence cycle
+    # datetime (tz-aware UTC); typed loosely to avoid core↔persistence cycle
+    observed_at_utc: object
     #: Provenance and optional attributes ---------------------------------
     canonical_url: str | None = None
     trim: str | None = None  # canonical lowercase, when the source provides it

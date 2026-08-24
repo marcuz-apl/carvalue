@@ -117,36 +117,34 @@ def decide_confidence(
     data_freshness_days: float,
     interval_rel_width: float | None,
     ood: bool | None,
-    config: EvidenceConfig = EvidenceConfig(),
+    config: EvidenceConfig | None = None,
     valuation_date: date | None = None,  # reserved for future seasonality rules
 ) -> ConfidenceDecision:
     """Apply the evidence rules in a fixed, documented order."""
+    cfg = config or EvidenceConfig()
     refused: list[ReasonCode] = []
     caps_low: list[ReasonCode] = []
 
-    if comparables_count < config.min_comparables_for_estimate:
+    if comparables_count < cfg.min_comparables_for_estimate:
         return ConfidenceDecision(ConfidenceLabel.INSUFFICIENT_DATA, (ReasonCode.SPARSE_SEGMENT,))
     if ood is True:
         refused.append(ReasonCode.OUT_OF_TRAINING_DOMAIN)
     elif ood is None:
         caps_low.append(ReasonCode.OUT_OF_TRAINING_DOMAIN)
-    if data_freshness_days > config.stale_after_days:
+    if data_freshness_days > cfg.stale_after_days:
         refused.append(ReasonCode.STALE_MODEL)
-    if interval_rel_width is not None and interval_rel_width > config.max_interval_rel_width:
+    if interval_rel_width is not None and interval_rel_width > cfg.max_interval_rel_width:
         refused.append(ReasonCode.TOO_WIDE_INTERVAL)
-    elif (
-        interval_rel_width is not None
-        and interval_rel_width > config.low_interval_rel_width_cap
-    ):
+    elif interval_rel_width is not None and interval_rel_width > cfg.low_interval_rel_width_cap:
         caps_low.append(ReasonCode.TOO_WIDE_INTERVAL)
 
     if refused:
         return ConfidenceDecision(ConfidenceLabel.INSUFFICIENT_DATA, tuple(refused))
 
     label = ConfidenceLabel.LOW
-    if comparables_count >= config.high_confidence_min_comparables:
+    if comparables_count >= cfg.high_confidence_min_comparables:
         label = ConfidenceLabel.HIGH
-    elif comparables_count >= config.medium_confidence_min_comparables:
+    elif comparables_count >= cfg.medium_confidence_min_comparables:
         label = ConfidenceLabel.MEDIUM
     if caps_low and label != ConfidenceLabel.LOW:
         label = ConfidenceLabel.LOW

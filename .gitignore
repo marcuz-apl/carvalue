@@ -41,6 +41,7 @@ logs/
 tmp/
 temp/
 .cache/
+catboost_info/
 
 # Local memory and tooling state
 .ecc/memory/project/

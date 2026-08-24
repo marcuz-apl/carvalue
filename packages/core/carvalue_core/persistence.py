@@ -10,7 +10,7 @@ Conventions:
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Any
 
 from sqlalchemy import (
@@ -30,6 +30,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.event import listens_for
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -45,7 +46,7 @@ from .reasons import ReasonCode
 
 def utcnow() -> datetime:
     """Current UTC timestamp (tz-aware)."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class UtcTimestamp(TypeDecorator):
@@ -58,15 +59,15 @@ class UtcTimestamp(TypeDecorator):
         if value is None:
             return None
         if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+            value = value.replace(tzinfo=UTC)
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
     def process_result_value(self, value: str | None, dialect: Any) -> datetime | None:
         if value is None:
             return None
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
+            parsed = parsed.replace(tzinfo=UTC)
         return parsed
 
 
@@ -102,9 +103,13 @@ class Source(Base):
     )
 
     __table_args__ = (
-        CheckConstraint("permission_status IN ('approved','unknown','denied')", name="ck_source_perm"),
         CheckConstraint(
-            "source_type IN ('manual_import','api_feed','crawler','open_data')", name="ck_source_type"
+            "permission_status IN ('approved','unknown','denied')",
+            name="ck_source_perm",
+        ),
+        CheckConstraint(
+            "source_type IN ('manual_import','api_feed','crawler','open_data')",
+            name="ck_source_type",
         ),
     )
 
@@ -272,9 +277,7 @@ class VehicleTaxonomy(Base):
 
     __table_args__ = (
         CheckConstraint("level IN ('make','model','trim')", name="ck_taxonomy_level"),
-        UniqueConstraint(
-            "level", "parent_id", "canonical_name", name="uq_taxonomy_entry"
-        ),
+        UniqueConstraint("level", "parent_id", "canonical_name", name="uq_taxonomy_entry"),
     )
 
 
@@ -403,7 +406,8 @@ class AuditEvent(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     occurred_at: Mapped[datetime] = mapped_column(UtcTimestamp, nullable=False, default=utcnow)
-    actor_type: Mapped[str] = mapped_column(String(8), nullable=False, default="system")  # admin|system
+    # actor_type: admin | system
+    actor_type: Mapped[str] = mapped_column(String(8), nullable=False, default="system")
     actor_ref: Mapped[str | None] = mapped_column(String(64))
     action: Mapped[str] = mapped_column(String(120), nullable=False)
     target_type: Mapped[str | None] = mapped_column(String(64))
@@ -461,12 +465,81 @@ def _as_utc(value: object) -> datetime:
     if not isinstance(value, datetime):
         raise TypeError(f"expected datetime, got {type(value).__name__}")
     if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
-def upsert_listing_observation(session: Session, obs: ListingObservation) -> UpsertOutcome:
+def _increment_run_counters(session: Session, run_id: int | None, status: str) -> None:
+    """Update the linked crawl_run's accepted/updated/duplicate counters (M2).
+
+    No-op when there is no linked run (manual import without a scheduled run),
+    so provenance stays intact and counters stay observable at the boundary.
+    """
+    if run_id is None:
+        return
+    run = session.get(CrawlRun, run_id)
+    if run is None:
+        return
+    counter_name = {"accepted": "accepted", "updated": "updated", "duplicate": "duplicate"}.get(
+        status
+    )
+    if counter_name is not None and hasattr(run, counter_name):
+        setattr(run, counter_name, int(getattr(run, counter_name)) + 1)
+
+
+def claim_source_run(
+    session: Session, source_id: int, correlation_id: str | None = None
+) -> CrawlRun | None:
+    """Acquire the database-backed lease for an approved, enabled source (FR-ADM-04/02).
+
+    Returns a running ``crawl_run`` with counters reset, or ``None`` when the
+    source is unauthorized (permission_status != 'approved' or not enabled) —
+    fail closed before any network adapter runs. A second claim while a lease is
+    held also returns None (or trips the unique index), so reruns stay idempotent.
+    """
+    source = session.get(Source, source_id)
+    if source is None:
+        return None
+    if source.permission_status != "approved" or not source.enabled:
+        return None  # unauthorized automated run blocked (fail closed)
+
+    existing = session.execute(
+        select(CrawlRun.id)
+        .where(
+            CrawlRun.source_id == source_id,
+            CrawlRun.state.in_(("queued", "running")),
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if existing is not None:
+        return None  # another queued/running run already holds the lease
+
+    started_at = datetime.now(UTC)
+    run = CrawlRun(
+        source_id=source_id,
+        state="running",
+        started_at=started_at,
+        finished_at=None,
+        parser_version="v1",
+        correlation_id=correlation_id or f"{source_id}-{started_at:%Y%m%d%H%M%S}",
+    )
+    session.add(run)
+    try:
+        session.flush()  # assigns id; unique index enforces the lease
+    except IntegrityError:
+        session.rollback()
+        return None  # concurrent claim won the lease — rerun stays idempotent
+    return run
+
+
+def upsert_listing_observation(
+    session: Session, obs: ListingObservation, run_id: int | None = None
+) -> UpsertOutcome:
     """Idempotently apply one normalized observation (FR-DATA-05/06).
+
+    ``run_id`` links raw content to its crawl_run so provenance never orphans;
+    a missing run reference is intentional only for manual imports without a
+    scheduled collection run.
 
     - New listing: insert + first price-history point; status ``accepted``.
     - Known (source, source_record_id): refresh last-seen and attributes; append a
@@ -500,6 +573,7 @@ def upsert_listing_observation(session: Session, obs: ListingObservation) -> Ups
             source_record_id=obs.source_record_id,
             canonical_url=obs.canonical_url,
             content_checksum_sha256=obs.content_checksum_sha256,
+            run_id=run_id,
             fetched_at=observed_at,
         )
         session.add(raw)
@@ -547,6 +621,7 @@ def upsert_listing_observation(session: Session, obs: ListingObservation) -> Ups
                     detail_json={"matched_listing_id": int(clash[0])},
                 )
             )
+        _increment_run_counters(session, run_id, "accepted")
         return UpsertOutcome(status="accepted", listing_id=listing.id, price_history_appended=True)
 
     changed = False
@@ -589,7 +664,12 @@ def upsert_listing_observation(session: Session, obs: ListingObservation) -> Ups
         changed = True
 
     status = "updated" if changed else "duplicate"
-    return UpsertOutcome(status=status, listing_id=existing.id, price_history_appended=history_appended)
+    _increment_run_counters(session, run_id, status)
+    return UpsertOutcome(
+        status=status,
+        listing_id=existing.id,
+        price_history_appended=history_appended,
+    )
 
 
 def resolve_make(db: Session, raw: object) -> str | None:
@@ -603,12 +683,16 @@ def resolve_make(db: Session, raw: object) -> str | None:
 
     if raw is None:
         return None
-    rows = db.execute(
-        select(VehicleTaxonomy).where(
-            VehicleTaxonomy.level == "make",
-            VehicleTaxonomy.active.is_(True),
+    rows = (
+        db.execute(
+            select(VehicleTaxonomy).where(
+                VehicleTaxonomy.level == "make",
+                VehicleTaxonomy.active.is_(True),
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for row in rows:
         names = [row.canonical_name, *[str(a) for a in row.aliases_json]]
         if any(normalize_token(raw) == normalize_token(name) for name in names):
@@ -622,13 +706,17 @@ def resolve_model(db: Session, make_canonical: str, raw: object) -> str | None:
 
     if raw is None:
         return None
-    rows = db.execute(
-        select(VehicleTaxonomy).where(
-            VehicleTaxonomy.level == "model",
-            VehicleTaxonomy.parent_id.isnot(None),
-            VehicleTaxonomy.active.is_(True),
+    rows = (
+        db.execute(
+            select(VehicleTaxonomy).where(
+                VehicleTaxonomy.level == "model",
+                VehicleTaxonomy.parent_id.isnot(None),
+                VehicleTaxonomy.active.is_(True),
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for row in rows:
         parent = db.get(VehicleTaxonomy, row.parent_id)
         if parent is None or parent.canonical_name != make_canonical:
@@ -645,13 +733,17 @@ def resolve_trim(db: Session, make_canonical: str, model_canonical: str, raw: ob
 
     if raw is None:
         return None
-    rows = db.execute(
-        select(VehicleTaxonomy).where(
-            VehicleTaxonomy.level == "trim",
-            VehicleTaxonomy.parent_id.isnot(None),
-            VehicleTaxonomy.active.is_(True),
+    rows = (
+        db.execute(
+            select(VehicleTaxonomy).where(
+                VehicleTaxonomy.level == "trim",
+                VehicleTaxonomy.parent_id.isnot(None),
+                VehicleTaxonomy.active.is_(True),
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for row in rows:
         parent = db.get(VehicleTaxonomy, row.parent_id)
         if parent is None or parent.canonical_name != model_canonical:

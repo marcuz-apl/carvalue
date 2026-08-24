@@ -1,4 +1,5 @@
 """M0: the ``carvalue init-db`` entry point seeds a fresh database."""
+
 import sqlite3
 
 

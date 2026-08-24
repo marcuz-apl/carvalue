@@ -73,8 +73,16 @@ warn_redundant_casts = true
 warn_unreachable = true
 no_implicit_optional = true
 check_untyped_defs = true
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = [
+    "carvalue_core.*",
+    "carvalue_api.*",
+    "carvalue_worker.*",
+]
 disallow_untyped_defs = true
-# Third-party libraries without (complete) type stubs.
+
 [[tool.mypy.overrides]]
 module = [
     "numpy.*",
@@ -82,5 +90,8 @@ module = [
     "statsmodels.*",
     "openpyxl.*",
     "apscheduler.*",
+    "joblib.*",
+    "catboost.*",
+    "sklearn.*",
 ]
 ignore_missing_imports = true

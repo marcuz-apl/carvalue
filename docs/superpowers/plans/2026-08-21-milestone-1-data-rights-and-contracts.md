@@ -95,9 +95,7 @@ def policy(**overrides: object) -> SourcePolicy:
 
 
 def test_unknown_permission_blocks_automated_source() -> None:
-    decision = preflight_automated_source(
-        policy(permission_status=PermissionStatus.UNKNOWN), NOW
-    )
+    decision = preflight_automated_source(policy(permission_status=PermissionStatus.UNKNOWN), NOW)
     assert decision.allowed is False
     assert decision.reason_code == ReasonCode.SOURCE_PERMISSION_BLOCKED
 
@@ -172,9 +170,7 @@ class PreflightDecision:
     reason_code: ReasonCode | None = None
 
 
-def preflight_automated_source(
-    policy: SourcePolicy, now_utc: datetime
-) -> PreflightDecision:
+def preflight_automated_source(policy: SourcePolicy, now_utc: datetime) -> PreflightDecision:
     """Return a fail-closed decision for automated source execution."""
 ```
 

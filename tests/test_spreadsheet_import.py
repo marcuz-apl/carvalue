@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from carvalue_core.imports.spreadsheet import (
@@ -20,7 +20,7 @@ def test_preview_with_missing_required_column_cannot_commit(tmp_path) -> None:
         source_id=1,
         default_make="ford",
         default_model="ranger",
-        observed_at_fallback=datetime(2026, 8, 21, tzinfo=timezone.utc),
+        observed_at_fallback=datetime(2026, 8, 21, tzinfo=UTC),
     )
 
     preview = preview_import(
@@ -44,7 +44,9 @@ def test_preview_with_missing_required_column_cannot_commit(tmp_path) -> None:
         file_path=preview.file_path,
         total_rows=preview.total_rows,
         accepted_observations=(observation,),
-        column_errors=((ReasonCode.COLUMN_NOT_FOUND, "Required column 'price_cad' was not found."),),
+        column_errors=(
+            (ReasonCode.COLUMN_NOT_FOUND, "Required column 'price_cad' was not found."),
+        ),
     )
 
     with pytest.raises(ValueError, match="cannot be committed"):

@@ -8,16 +8,16 @@
 
 ### A. Environment Initialization
 ```bash
-# 1. Initialize virtual environment (ext4 filesystem)
-python3 -m venv /home/zenusr/.venv_carvalue
-source /home/zenusr/.venv_carvalue/bin/activate
+# 1. Initialize project virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e .
 
 # 2. Initialize SQLite Database & System of Record
-carvalue init-db --db-url "sqlite:///./carvalue.db"
+./bin/carvalue init-db --db-url "sqlite:///./carvalue.db"
 
 # 3. Start API Service
-carvalue run --host 0.0.0.0 --port 8000 --db-url "sqlite:///./carvalue.db"
+./bin/carvalue run --host 0.0.0.0 --port 8000 --db-url "sqlite:///./carvalue.db"
 ```
 
 ### B. Frontend Deployment (`apps/web`)

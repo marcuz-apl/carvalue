@@ -9,21 +9,21 @@ A comprehensive guide for testing the CarValue platform: automated test suites, 
 Run the full automated test suite (84 unit and integration tests across M0–M8):
 
 ```bash
-/home/zenusr/.venv_carvalue/bin/pytest -v
+./bin/pytest -v
 ```
 
 ### Focused Milestone Test Commands
 
 | Milestone | Command | What It Verifies |
 |:---|:---|:---|
-| **Full Suite** | `pytest -v` | All 84 unit and integration tests across the modular monolith. |
-| **M6 (Web App)** | `pytest tests/test_web_contract.py -v` | Next.js app structure, public visitor contract, 80% interval outputs, zero-auth guarantees. |
-| **M7 (Hardening)** | `pytest tests/test_launch_hardening.py -v` | Security headers (`nosniff`, `DENY` framing, CSP), system status endpoint, SQLite online backup/restore, retention purging. |
-| **M8 (Expansion)** | `pytest tests/test_coverage_expansion.py -v` | Heavy-Duty pickup taxonomy resolution, Alberta regions, segment regression gates, anonymous feedback API. |
-| **M5 (Admin & Worker)** | `pytest tests/test_admin_security.py tests/test_admin_api.py tests/test_worker_engine.py -v` | PBKDF2 password hashing, CSRF protection, 12h session tokens, crawler preflights, batch runner. |
-| **M3 (Valuation ML)** | `pytest tests/test_valuation_models.py -v` | Centered-age `OLSBaseline`, `CatBoostCandidate`, 80% prediction intervals, chronological splits, refusal rules. |
-| **M1 & M2 (Ingestion)** | `pytest tests/test_spreadsheet_import.py tests/test_import_data_quality.py -v` | Spreadsheet dry-run preview/commit, observation deduplication, price history appending. |
-| **M0 (Database)** | `pytest tests/test_migrations.py tests/test_cli_init_db.py -v` | SQLite migration runner, schema versioning, taxonomy and admin user seeding. |
+| **Full Suite** | `./bin/pytest -v` | All 84 unit and integration tests across the modular monolith. |
+| **M6 (Web App)** | `./bin/pytest tests/test_web_contract.py -v` | Next.js app structure, public visitor contract, 80% interval outputs, zero-auth guarantees. |
+| **M7 (Hardening)** | `./bin/pytest tests/test_launch_hardening.py -v` | Security headers (`nosniff`, `DENY` framing, CSP), system status endpoint, SQLite online backup/restore, retention purging. |
+| **M8 (Expansion)** | `./bin/pytest tests/test_coverage_expansion.py -v` | Heavy-Duty pickup taxonomy resolution, Alberta regions, segment regression gates, anonymous feedback API. |
+| **M5 (Admin & Worker)** | `./bin/pytest tests/test_admin_security.py tests/test_admin_api.py tests/test_worker_engine.py -v` | PBKDF2 password hashing, CSRF protection, 12h session tokens, crawler preflights, batch runner. |
+| **M3 (Valuation ML)** | `./bin/pytest tests/test_valuation_models.py -v` | Centered-age `OLSBaseline`, `CatBoostCandidate`, 80% prediction intervals, chronological splits, refusal rules. |
+| **M1 & M2 (Ingestion)** | `./bin/pytest tests/test_spreadsheet_import.py tests/test_import_data_quality.py -v` | Spreadsheet dry-run preview/commit, observation deduplication, price history appending. |
+| **M0 (Database)** | `./bin/pytest tests/test_migrations.py tests/test_cli_init_db.py -v` | SQLite migration runner, schema versioning, taxonomy and admin user seeding. |
 
 ---
 
@@ -33,12 +33,12 @@ To test the entire web application and backend interactively in your browser:
 
 ### Step 1: Initialize Database & Seed Alberta Taxonomy
 ```bash
-/home/zenusr/.venv_carvalue/bin/carvalue init-db --db-url "sqlite:///./carvalue.db"
+./bin/carvalue init-db --db-url "sqlite:///./carvalue.db"
 ```
 
 ### Step 2: Start the FastAPI Backend Server
 ```bash
-/home/zenusr/.venv_carvalue/bin/carvalue run --host 127.0.0.1 --port 8000 --db-url "sqlite:///./carvalue.db"
+./bin/carvalue run --host 127.0.0.1 --port 8000 --db-url "sqlite:///./carvalue.db"
 ```
 
 ### Step 3: Start the Next.js Frontend Development Server

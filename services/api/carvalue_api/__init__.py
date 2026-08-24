@@ -102,6 +102,25 @@ async def add_security_headers(request: Request, call_next: Any) -> Response:
     return response
 
 
+@app.get("/")
+def root_status() -> dict[str, Any]:
+    """Root entry point providing discovery links."""
+    return {
+        "service": "CarValue API",
+        "description": "Explainable used-pickup asking-price valuator for Alberta, Canada",
+        "version": "0.1.0",
+        "interactive_docs": "/docs",
+        "openapi_schema": "/openapi.json",
+        "endpoints": {
+            "taxonomy": "/v1/taxonomy",
+            "system_status": "/v1/system/status",
+            "valuations": "/v1/valuations",
+            "feedback": "/v1/valuations/feedback",
+            "admin_login": "/admin/login",
+        },
+    }
+
+
 def get_db() -> SqlAlchemySession:
     engine = persistence.make_engine(app.state.db_url)
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)

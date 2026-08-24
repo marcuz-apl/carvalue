@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# CarValue Test Suite Local Launcher
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PYTHONPATH="$SCRIPT_DIR/packages/core:$SCRIPT_DIR/packages/schemas:$SCRIPT_DIR/services/api:$SCRIPT_DIR/services/worker:${PYTHONPATH:-}"
+
+if [[ -f "$SCRIPT_DIR/.venv/bin/pytest" ]]; then
+    exec "$SCRIPT_DIR/.venv/bin/pytest" "$@"
+else
+    exec pytest "$@"
+fi

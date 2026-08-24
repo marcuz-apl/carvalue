@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# CarValue CLI Local Launcher
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PYTHONPATH="$SCRIPT_DIR/packages/core:$SCRIPT_DIR/packages/schemas:$SCRIPT_DIR/services/api:$SCRIPT_DIR/services/worker:${PYTHONPATH:-}"
+
+if [[ -f "$SCRIPT_DIR/.venv/bin/python" ]]; then
+    exec "$SCRIPT_DIR/.venv/bin/python" -m carvalue_api.cli "$@"
+else
+    exec python3 -m carvalue_api.cli "$@"
+fi

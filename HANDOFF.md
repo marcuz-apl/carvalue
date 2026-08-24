@@ -60,13 +60,13 @@ The entire Technical Roadmap (**Milestones M0 through M8**) has been implemented
   - System health and market data freshness monitoring (`GET /v1/system/status`).
   - Point-in-time SQLite online backup & atomic restore maintenance engine (`carvalue_api.maintenance`).
   - Automated data retention purge (`purge_expired_retention`) for raw crawl content and expired sessions.
-  - Formal security threat model (`docs/THREAT-MODEL.md`).
-  - Alberta PIPA / Canadian PIPEDA statutory privacy review (`docs/PRIVACY-REVIEW.md`).
-  - Operator runbook (`docs/RUNBOOK.md`).
+  - Formal security threat model (`docs/004-THREAT-MODEL.md`).
+  - Alberta PIPA / Canadian PIPEDA statutory privacy review (`docs/005-PRIVACY-REVIEW.md`).
+  - Operator runbook (`docs/006-RUNBOOK.md`).
 
 - **M8 — Coverage Expansion:**
   - Heavy-Duty pickup taxonomy: Super Duty F-250/F-350, Silverado 2500HD/3500HD, Sierra 2500HD/3500HD, Ram 2500/3500, Tundra, Titan (`carvalue_core.taxonomy`).
   - Alberta regional sub-market segmentation (Calgary, Edmonton, Red Deer, Lethbridge, Medicine Hat, Fort McMurray, Grande Prairie, Rural Alberta).
   - `SegmentRegressionGate`: prevents promotion if any supported segment regresses $>8\%$ MAE.
   - Anonymous visitor feedback endpoint (`POST /v1/valuations/feedback`).
-  - Architectural decision record (`docs/adr/0002-coverage-expansion-governance.md`).
+  - Architectural decision record (`docs/007-ADR-0002-coverage-expansion-governance.md`).

@@ -41,17 +41,27 @@ The preferred long-term strategy combines licensed automotive data with direct A
 
 ## Repository guide
 
-- [Product requirements](./PRD.md)
-- [Engineering and agent guidance](./AGENTS.md)
-- [Current project handoff](./HANDOFF.md)
-- [Source acquisition strategy](./docs/SOURCE-ACQUISITION-STRATEGY.md)
-- [MarketCheck onboarding and resume guide](./docs/MARKETCHECK-ONBOARDING-AND-RESUME.md)
-- [Original initiative](./Initiative.md)
-- [Ford Ranger valuation example](./Ford-Ranger/Valuation-of-a-used-Ford-Ranger.md)
+- [Product Requirements](./PRD.md)
+- [Engineering & Agent Guidance](./AGENTS.md)
+- [Project Handoff & Status](./HANDOFF.md)
+- [Original Initiative](./Initiative.md)
+- [Ford Ranger Valuation Example](./Ford-Ranger/Valuation-of-a-used-Ford-Ranger.md)
+
+### Technical Documentation (`docs/`)
+
+- [001 — Technical Roadmap & Exit Gates](./docs/001-TECHNICAL-ROADMAP.md)
+- [002 — M1 Data Contracts Design Specification](./docs/002-SPEC-20260821-milestone-1-data-contracts-design.md)
+- [003 — M1 Data Rights & Contracts Implementation Plan](./docs/003-PLAN-20260821-milestone-1-data-rights-and-contracts.md)
+- [004 — Security Threat Model](./docs/004-THREAT-MODEL.md)
+- [005 — Alberta PIPA & Canadian Privacy Review](./docs/005-PRIVACY-REVIEW.md)
+- [006 — Operator Runbook](./docs/006-RUNBOOK.md)
+- [007 — ADR: Coverage Expansion Governance](./docs/007-ADR-0002-coverage-expansion-governance.md)
+- [008 — Technote: SourcePolicy Import Resolution](./docs/008-TECHNOTE-20260824-MAINTENANCE-IMPORT-FIX.md)
+- [009 — Platform Testing Guide](./docs/009-TESTING-GUIDE.md)
 
 ## Delivery roadmap
 
-CarValue is delivered through gated milestones. Each milestone must meet its exit criteria before dependent work begins. The detailed scope, dependencies, and no-go conditions live in [the technical roadmap](./docs/TECHNICAL-ROADMAP.md).
+CarValue is delivered through gated milestones. Each milestone must meet its exit criteria before dependent work begins. The detailed scope, dependencies, and no-go conditions live in [the technical roadmap](./docs/001-TECHNICAL-ROADMAP.md).
 
 1. **Foundation hardening:** package boundaries, migrations, configuration, lint/type cleanup, and test infrastructure.
 2. **Data rights and contracts:** source permission metadata, pickup taxonomy, normalized listing contract, and authorized fixtures. **Current milestone.**

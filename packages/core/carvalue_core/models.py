@@ -442,3 +442,75 @@ def evaluate_prediction(
         ood=ood,
         config=config,
     )
+
+
+@dataclass(frozen=True)
+class SegmentRegressionResult:
+    passed: bool
+    regressed_segments: list[str]
+    max_observed_slice_degradation_pct: float
+    summary: str
+
+
+class SegmentRegressionGate:
+    """Enforces that candidate models do not regress on supported vehicle segments (PRD FR-ML-08 / M8)."""
+
+    @staticmethod
+    def evaluate(
+        baseline_metrics: ModelMetrics | dict[str, Any],
+        candidate_metrics: ModelMetrics | dict[str, Any],
+        max_allowed_slice_mae_degradation_pct: float = 0.08,
+    ) -> SegmentRegressionResult:
+        """Compare candidate slice metrics against baseline.
+
+        Returns passed=False if any segment with >= 5 samples has MAE degradation
+        exceeding max_allowed_slice_mae_degradation_pct (default 8%).
+        """
+        base_slices = (
+            baseline_metrics.segment_slices
+            if isinstance(baseline_metrics, ModelMetrics)
+            else baseline_metrics.get("segment_slices", {})
+        )
+        cand_slices = (
+            candidate_metrics.segment_slices
+            if isinstance(candidate_metrics, ModelMetrics)
+            else candidate_metrics.get("segment_slices", {})
+        )
+
+        regressions: list[str] = []
+        max_deg = 0.0
+
+        for slice_name, base_stats in base_slices.items():
+            if slice_name not in cand_slices:
+                continue
+            cand_stats = cand_slices[slice_name]
+            base_n = base_stats.get("sample_count", 0)
+            cand_n = cand_stats.get("sample_count", 0)
+
+            if base_n < 5 or cand_n < 5:
+                continue
+
+            base_mae = float(base_stats.get("mae_cad", 0.0))
+            cand_mae = float(cand_stats.get("mae_cad", 0.0))
+
+            if base_mae > 0:
+                deg_pct = (cand_mae - base_mae) / base_mae
+                if deg_pct > max_deg:
+                    max_deg = deg_pct
+                if deg_pct > max_allowed_slice_mae_degradation_pct:
+                    regressions.append(
+                        f"{slice_name}: baseline MAE ${base_mae:.2f} -> candidate MAE ${cand_mae:.2f} (+{deg_pct*100:.1f}%)"
+                    )
+
+        passed = len(regressions) == 0
+        summary = (
+            "Segment regression gate passed: no material slice degradation"
+            if passed
+            else f"Segment regression gate failed on {len(regressions)} slice(s): {'; '.join(regressions)}"
+        )
+        return SegmentRegressionResult(
+            passed=passed,
+            regressed_segments=regressions,
+            max_observed_slice_degradation_pct=round(max_deg, 4),
+            summary=summary,
+        )

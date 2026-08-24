@@ -88,6 +88,20 @@ app = FastAPI(
 app.state.db_url = "sqlite:///./carvalue.db"  # default; overwritten by cli/tests
 
 
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next: Any) -> Response:
+    """Inject strict security headers across all API responses (PRD Section 11)."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+    )
+    return response
+
+
 def get_db() -> SqlAlchemySession:
     engine = persistence.make_engine(app.state.db_url)
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)
@@ -151,6 +165,7 @@ class ValuationRequest(BaseModel):
     trim: str | None = Field(default=None)
     drivetrain: str | None = Field(default=None)  # "2wd" | "4wd"
     seller_type: str | None = Field(default=None)  # "dealer" | "private"
+    region: str | None = Field(default=None)  # "calgary_region" | "edmonton_region" etc.
 
     @field_validator("make", "model")
     @classmethod
@@ -160,6 +175,12 @@ class ValuationRequest(BaseModel):
             if val:
                 return val
         raise ValueError("must be a non-empty string")
+
+
+class ValuationFeedbackRequest(BaseModel):
+    valuation_event_id: int | None = Field(default=None)
+    feedback_useful: bool
+    feedback_notes: str | None = Field(default=None, max_length=500)
 
 
 class ValuationResponse(BaseModel):
@@ -208,6 +229,45 @@ class ResolveIssueRequest(BaseModel):
 @app.get("/healthz", tags=["system"])
 async def health_check() -> dict[str, bool]:
     return {"ok": True}
+
+
+@app.get("/v1/system/status", tags=["system"])
+async def system_status() -> dict[str, Any]:
+    """Return operational system health, active model version, and market data freshness."""
+    db = get_db()
+    try:
+        active_model = db.execute(
+            select(ModelVersion).where(ModelVersion.status == "active").limit(1)
+        ).scalar_one_or_none()
+
+        listings_count = db.execute(select(func.count(Listing.id))).scalar_one()
+        comps_count = db.execute(select(func.count(ListingPriceHistory.id))).scalar_one()
+
+        latest_obs = db.execute(select(func.max(ListingPriceHistory.observed_at))).scalar_one()
+        if latest_obs:
+            freshness_days = max(float((datetime.now(UTC).date() - latest_obs.date()).days), 0.0)
+        else:
+            freshness_days = float("inf")
+
+        return {
+            "status": "ok",
+            "timestamp_utc": datetime.now(UTC).isoformat(),
+            "active_model": (
+                {
+                    "id": active_model.id,
+                    "algorithm": active_model.algorithm,
+                    "trained_at_utc": active_model.trained_at_utc.isoformat(),
+                    "metrics": active_model.metrics_json,
+                }
+                if active_model
+                else None
+            ),
+            "data_freshness_days": freshness_days if freshness_days != float("inf") else None,
+            "total_listings": int(listings_count),
+            "total_price_observations": int(comps_count),
+        }
+    finally:
+        db.close()
 
 
 @app.post(
@@ -394,6 +454,45 @@ def _log_valuation_event(
         db.commit()
     except Exception as exc:
         logger.warning("Failed to record valuation event: %s", exc)
+
+
+@app.post("/v1/valuations/feedback", tags=["valuation"])
+async def submit_valuation_feedback(payload: ValuationFeedbackRequest) -> dict[str, Any]:
+    """Record visitor feedback on asking price estimate (PRD FR-OBS-02)."""
+    db = get_db()
+    try:
+        if payload.valuation_event_id:
+            event = db.get(ValuationEvent, payload.valuation_event_id)
+            if event:
+                event.feedback_useful = payload.feedback_useful
+                db.commit()
+                return {
+                    "ok": True,
+                    "event_id": event.id,
+                    "feedback_useful": event.feedback_useful,
+                }
+
+        # If no event ID provided, create feedback event
+        new_event = ValuationEvent(
+            occurred_at=datetime.now(UTC),
+            event_type="feedback",
+            feedback_useful=payload.feedback_useful,
+            input_json={"notes": payload.feedback_notes} if payload.feedback_notes else {},
+            confidence_label="feedback",
+            comparables_count=0,
+            interval_level=80,
+            latency_ms=0,
+            device_class="web",
+        )
+        db.add(new_event)
+        db.commit()
+        return {
+            "ok": True,
+            "event_id": new_event.id,
+            "feedback_useful": payload.feedback_useful,
+        }
+    finally:
+        db.close()
 
 
 @app.get("/v1/taxonomy", response_model=TaxonomyResponse)

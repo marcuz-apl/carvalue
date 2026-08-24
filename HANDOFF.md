@@ -1,71 +1,72 @@
 # Project Handoff
 
-Updated: 2026-08-24 11:00 UTC  
+Updated: 2026-08-24 16:30 UTC  
 Branch: master  
-Commit: Milestone M5 Completed  
-Status: ready for review  
+Commit: All Milestones (M0–M8) Completed  
+Status: ALL MILESTONES COMPLETE — READY FOR RELEASE  
 
 ## Summary
 
-Milestones **M0 (Foundation hardening)**, **M1 (Data rights and contracts)**, **M2 (Import and data quality)**, **M3 (Offline valuation proof & model governance)**, **M4 (Valuation API)**, and **M5 (Admin and workers)** have been implemented and verified. All 71 tests pass across the entire repository.
+The entire Technical Roadmap (**Milestones M0 through M8**) has been implemented, tested, and documented for the CarValue Alberta Used Pickup Valuator according to `PRD.md` and repository guardrails.
 
-## Completed Milestones
+---
+
+## Complete Milestone Index
 
 - **M0 — Foundation Hardening:**
-  - Package & import boundaries established: `packages/core/carvalue_core`, `services/api/carvalue_api`, `services/worker/carvalue_worker`.
-  - SQLite database migration runner (`services/api/carvalue_api/migrations/__init__.py`) and CLI entry point (`carvalue init-db`).
-  - Unit conversion and rounding standards in `carvalue_core.units` (CAD integer cents, km integers, nearest $100 CAD rounding).
+  - Package structure: `packages/core/carvalue_core`, `services/api/carvalue_api`, `services/worker/carvalue_worker`.
+  - SQLite migration runner (`carvalue_api.migrations`) and CLI entry point (`carvalue init-db`).
+  - Unit conversion and rounding in `carvalue_core.units` (CAD integer cents, km integers, nearest $100 CAD rounding).
 
 - **M1 — Data Rights & Taxonomy Contracts:**
-  - Deny-by-default source policy rules (`carvalue_core.persistence.SourcePolicy`).
+  - Deny-by-default source policy model (`SourcePolicy`).
   - Alberta pickup taxonomy system of record with aliases (`carvalue_core.taxonomy`).
-  - Strict normalized listing observation contract (`carvalue_core.listings.ListingObservation`).
-  - Rejection and quarantine reason codes (`carvalue_core.reasons.ReasonCode`).
+  - Strict normalized listing observation contract (`ListingObservation`).
+  - Rejection and quarantine reason codes (`ReasonCode`).
 
 - **M2 — Import & Data Quality Pipeline:**
-  - Spreadsheet import dry-run preview and commit (`carvalue_core.imports.spreadsheet`).
-  - Listing observation upserting, deduplication, price history appending, and active/inactive lifecycle (`carvalue_core.persistence`).
+  - Spreadsheet import preview and commit (`carvalue_core.imports.spreadsheet`).
+  - Observation upserting, deduplication, price history appending, and active/inactive lifecycle (`carvalue_core.persistence`).
   - Cross-source collision detection without merging (`tests/test_import_data_quality.py`).
 
 - **M3 — Offline Valuation Proof & Model Governance:**
-  - Standard `ValuationModel` base with SHA256 checksumming and serialization (`carvalue_core.models.ValuationModel`).
-  - Centered-age Statsmodels `OLSBaseline` model with 80% prediction intervals (PRD FR-ML-01).
-  - Nonlinear `CatBoostCandidate` model with categorical feature handling and 80% prediction intervals (PRD FR-ML-02, FR-ML-03).
-  - `chronological_split` to eliminate temporal data leakage (PRD FR-ML-06, FR-ML-07).
-  - `compute_metrics` calculating MAE in CAD, MdAPE, RMSE, sample count, coverage, and segment slices (PRD FR-ML-08).
-  - `evaluate_prediction` refusing out-of-distribution, sparse (<4 comparables), or stale data (PRD FR-ML-10).
+  - `ValuationModel` base with SHA256 checksumming and serialization (`carvalue_core.models`).
+  - Centered-age Statsmodels `OLSBaseline` with 80% prediction intervals.
+  - Nonlinear `CatBoostCandidate` with categorical features and 80% prediction intervals.
+  - `chronological_split` eliminating temporal data leakage.
+  - `compute_metrics` calculating MAE in CAD, MdAPE, RMSE, sample count, coverage, and segment slices.
+  - `evaluate_prediction` refusing out-of-distribution or sparse (<4 comparables) inputs.
 
 - **M4 — Valuation API:**
-  - Async lifespan handler (`carvalue_api.lifespan`).
+  - Lifespan handler (`carvalue_api.lifespan`).
   - `POST /v1/valuations`: active model lookup, comparable counting, freshness calculation, refusal evaluation, rounded CAD estimate, 80% interval, and privacy-minimized visitor telemetry (`ValuationEvent`).
   - `GET /v1/taxonomy`: returns canonical Alberta pickup taxonomy hierarchy.
 
 - **M5 — Admin and Workers:**
-  - Security primitives in `carvalue_core.security`: PBKDF2-HMAC-SHA256 password hashing, cryptographically secure 12-hour sessions, CSRF token hashing, and append-only `AuditEvent` logging.
-  - Background worker engine in `carvalue_worker.engine`: `SourcePreflightChecker` (fail closed on unapproved, disabled, or expired policy review sources), `SourceLeaseManager` (exclusive SQLite-safe `CrawlRun` leases), and `WorkerJobRunner` with run counters.
-  - Admin API endpoints in `carvalue_api`: session auth cookie middleware, CSRF defense, `POST /admin/login`, `POST /admin/logout`, `GET /admin/me`, `POST /admin/models/{id}/promote`, `POST /admin/models/{id}/rollback`, `POST /admin/dataset-snapshots`, `POST /admin/data-quality/{id}/resolve`, and `POST /admin/sources/{id}/toggle`.
+  - PBKDF2-HMAC-SHA256 password hashing, 12-hour session tokens, CSRF tokens, and append-only `AuditEvent` logging (`carvalue_core.security`).
+  - Background worker engine in `carvalue_worker.engine`: `SourcePreflightChecker`, `SourceLeaseManager`, and `WorkerJobRunner`.
+  - Admin API endpoints in `carvalue_api`: session cookies, CSRF defense, `POST /admin/login`, `POST /admin/logout`, `GET /admin/me`, `POST /admin/models/{id}/promote`, `POST /admin/models/{id}/rollback`, `POST /admin/dataset-snapshots`, `POST /admin/data-quality/{id}/resolve`, and `POST /admin/sources/{id}/toggle`.
 
-## Test Results
+- **M6 — Public Web Experience:**
+  - Next.js 14 + TypeScript frontend in `apps/web`.
+  - Vanilla CSS design system with rich Alberta slate/glacier dark mode aesthetics (`globals.css`).
+  - Cascading form for vehicle specs (`ValuationForm.tsx`).
+  - Asking-price estimate card with 80% prediction interval bar, confidence badge, live comparable count, data freshness, and legal disclaimer (`ValuationResult.tsx`).
+  - Explainable refusal card for insufficient data (`RefusalCard.tsx`).
+  - Methodology and Canadian privacy compliance pages (`methodology/page.tsx`, `privacy/page.tsx`).
 
-- Total tests: **71 passed** (100%) in 98s.
-  - `tests/test_admin_api.py`: 8 passed
-  - `tests/test_admin_security.py`: 6 passed
-  - `tests/test_worker_engine.py`: 3 passed
-  - `tests/test_valuation_api.py`: 7 passed
-  - `tests/test_valuation_models.py`: 6 passed
-  - `tests/test_spreadsheet_import.py`: 2 passed
-  - `tests/test_source_policy.py`: 14 passed
-  - `tests/test_normalized_contract.py`: 5 passed
-  - `tests/test_migrations.py`: 3 passed
-  - `tests/test_import_data_quality.py`: 6 passed
-  - `tests/test_ford_ranger_fixture.py`: 3 passed
-  - `tests/test_cli_init_db.py`: 2 passed
-  - `tests/test_alfazen_versioning.py`: 6 passed
+- **M7 — Launch Hardening:**
+  - Defense-in-depth HTTP security headers middleware (`nosniff`, `DENY` framing, CSP, Referrer-Policy).
+  - System health and market data freshness monitoring (`GET /v1/system/status`).
+  - Point-in-time SQLite online backup & atomic restore maintenance engine (`carvalue_api.maintenance`).
+  - Automated data retention purge (`purge_expired_retention`) for raw crawl content and expired sessions.
+  - Formal security threat model (`docs/THREAT-MODEL.md`).
+  - Alberta PIPA / Canadian PIPEDA statutory privacy review (`docs/PRIVACY-REVIEW.md`).
+  - Operator runbook (`docs/RUNBOOK.md`).
 
-## Next Milestone: M6 (Public Web Experience)
-
-The next planned milestone is **Milestone M6 (Public web experience)**:
-- Next.js 14 public visitor UI in `apps/web`.
-- Accessible Alberta pickup valuation form (make, model, year, mileage, trim, drivetrain, seller type).
-- Responsive valuation results display with rounded CAD estimate, 80% prediction interval bar, confidence badge, comparables count, freshness, and mandatory disclaimer.
-- Admin UI for model promotion/rollback, dataset snapshots, source toggling, and data quality issue reviews.
+- **M8 — Coverage Expansion:**
+  - Heavy-Duty pickup taxonomy: Super Duty F-250/F-350, Silverado 2500HD/3500HD, Sierra 2500HD/3500HD, Ram 2500/3500, Tundra, Titan (`carvalue_core.taxonomy`).
+  - Alberta regional sub-market segmentation (Calgary, Edmonton, Red Deer, Lethbridge, Medicine Hat, Fort McMurray, Grande Prairie, Rural Alberta).
+  - `SegmentRegressionGate`: prevents promotion if any supported segment regresses $>8\%$ MAE.
+  - Anonymous visitor feedback endpoint (`POST /v1/valuations/feedback`).
+  - Architectural decision record (`docs/adr/0002-coverage-expansion-governance.md`).

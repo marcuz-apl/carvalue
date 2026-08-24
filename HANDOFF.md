@@ -1,15 +1,15 @@
 # Project Handoff
 
-Updated: 2026-08-24 10:45 UTC  
+Updated: 2026-08-24 11:00 UTC  
 Branch: master  
-Commit: 511637e (HEAD -> master, origin/master, origin/HEAD)  
+Commit: Milestone M5 Completed  
 Status: ready for review  
 
 ## Summary
 
-Milestones **M0 (Foundation hardening)**, **M1 (Data rights and contracts)**, **M2 (Import and data quality)**, **M3 (Offline valuation proof & model governance)**, and **M4 (Valuation API)** have been implemented and verified. All 54 tests pass across the entire repository with 100% compliance on linting (`ruff`), formatting, and static typing (`mypy`).
+Milestones **M0 (Foundation hardening)**, **M1 (Data rights and contracts)**, **M2 (Import and data quality)**, **M3 (Offline valuation proof & model governance)**, **M4 (Valuation API)**, and **M5 (Admin and workers)** have been implemented and verified. All 71 tests pass across the entire repository.
 
-## Completed
+## Completed Milestones
 
 - **M0 — Foundation Hardening:**
   - Package & import boundaries established: `packages/core/carvalue_core`, `services/api/carvalue_api`, `services/worker/carvalue_worker`.
@@ -26,74 +26,46 @@ Milestones **M0 (Foundation hardening)**, **M1 (Data rights and contracts)**, **
   - Spreadsheet import dry-run preview and commit (`carvalue_core.imports.spreadsheet`).
   - Listing observation upserting, deduplication, price history appending, and active/inactive lifecycle (`carvalue_core.persistence`).
   - Cross-source collision detection without merging (`tests/test_import_data_quality.py`).
-  - Data quality issue reporting and quarantine tracking.
 
 - **M3 — Offline Valuation Proof & Model Governance:**
-  - Base `ValuationModel` class with serialization (`.save()`, `.load()`) and SHA256 checksum verification (`carvalue_core.models.py`).
-  - Centered vehicle-age `OLSBaseline` with Statsmodels OLS (PRD FR-ML-01).
-  - Nonlinear `CatBoostCandidate` with categorical trim/drivetrain/seller-type features and 80% prediction intervals via quantile regressors (PRD FR-ML-02, FR-ML-03).
-  - Chronological train/val/test split (`chronological_split`) preventing temporal data leakage (PRD FR-ML-06, FR-ML-07).
-  - Comprehensive metric computation (`compute_metrics`): MAE (CAD), MdAPE, RMSE, sample count, empirical 80% interval coverage, mean relative width, and segment slices (PRD FR-ML-08).
-  - Refusal decision rules (`evaluate_prediction`, `decide_confidence`): refuses sparse segments (<4 comparables), out-of-distribution inputs, and stale data (PRD FR-ML-10).
+  - Standard `ValuationModel` base with SHA256 checksumming and serialization (`carvalue_core.models.ValuationModel`).
+  - Centered-age Statsmodels `OLSBaseline` model with 80% prediction intervals (PRD FR-ML-01).
+  - Nonlinear `CatBoostCandidate` model with categorical feature handling and 80% prediction intervals (PRD FR-ML-02, FR-ML-03).
+  - `chronological_split` to eliminate temporal data leakage (PRD FR-ML-06, FR-ML-07).
+  - `compute_metrics` calculating MAE in CAD, MdAPE, RMSE, sample count, coverage, and segment slices (PRD FR-ML-08).
+  - `evaluate_prediction` refusing out-of-distribution, sparse (<4 comparables), or stale data (PRD FR-ML-10).
 
 - **M4 — Valuation API:**
-  - FastAPI application lifespan context (`services/api/carvalue_api/__init__.py`).
-  - Public `POST /v1/valuations` endpoint loading active `ModelVersion` artifact from SQLite, querying comparables and data freshness, running prediction, applying refusal rules, and returning rounded CAD asking-price estimate, 80% interval, confidence label, freshness, and disclaimer.
-  - Public `GET /v1/taxonomy` endpoint returning canonical taxonomy tree.
-  - Privacy-minimized telemetry logging to `ValuationEvent` (recording latency ms, device class, inputs, confidence label; no PII) (PRD FR-OBS-01).
-  - Comprehensive M4 test suite (`tests/test_valuation_api.py`) verifying happy path, out-of-distribution refusal, sparse comparables refusal, unsupported vehicle refusal, input validation, and response latency.
+  - Async lifespan handler (`carvalue_api.lifespan`).
+  - `POST /v1/valuations`: active model lookup, comparable counting, freshness calculation, refusal evaluation, rounded CAD estimate, 80% interval, and privacy-minimized visitor telemetry (`ValuationEvent`).
+  - `GET /v1/taxonomy`: returns canonical Alberta pickup taxonomy hierarchy.
 
-## Working tree
+- **M5 — Admin and Workers:**
+  - Security primitives in `carvalue_core.security`: PBKDF2-HMAC-SHA256 password hashing, cryptographically secure 12-hour sessions, CSRF token hashing, and append-only `AuditEvent` logging.
+  - Background worker engine in `carvalue_worker.engine`: `SourcePreflightChecker` (fail closed on unapproved, disabled, or expired policy review sources), `SourceLeaseManager` (exclusive SQLite-safe `CrawlRun` leases), and `WorkerJobRunner` with run counters.
+  - Admin API endpoints in `carvalue_api`: session auth cookie middleware, CSRF defense, `POST /admin/login`, `POST /admin/logout`, `GET /admin/me`, `POST /admin/models/{id}/promote`, `POST /admin/models/{id}/rollback`, `POST /admin/dataset-snapshots`, `POST /admin/data-quality/{id}/resolve`, and `POST /admin/sources/{id}/toggle`.
 
-- Modified:
-  - `.gitignore` (added `catboost_info/`)
-  - `packages/core/carvalue_core/__init__.py`
-  - `packages/core/carvalue_core/confidence.py`
-  - `packages/core/carvalue_core/imports/spreadsheet.py`
-  - `packages/core/carvalue_core/listings.py`
-  - `packages/core/carvalue_core/persistence.py`
-  - `packages/core/carvalue_core/reasons.py`
-  - `packages/core/carvalue_core/taxonomy.py`
-  - `packages/core/carvalue_core/units.py`
-  - `pyproject.toml`
-  - `services/api/carvalue_api/__init__.py`
-  - `services/api/carvalue_api/cli.py`
-  - `services/api/carvalue_api/migrations/__init__.py`
-  - `services/worker/carvalue_worker/__init__.py`
-  - `tests/test_cli_init_db.py`
-  - `tests/test_migrations.py`
-  - `tests/test_spreadsheet_import.py`
-- Untracked:
-  - `packages/core/carvalue_core/models.py`
-  - `tests/test_import_data_quality.py`
-  - `tests/test_valuation_api.py`
-  - `tests/test_valuation_models.py`
+## Test Results
 
-## Checks
+- Total tests: **71 passed** (100%) in 98s.
+  - `tests/test_admin_api.py`: 8 passed
+  - `tests/test_admin_security.py`: 6 passed
+  - `tests/test_worker_engine.py`: 3 passed
+  - `tests/test_valuation_api.py`: 7 passed
+  - `tests/test_valuation_models.py`: 6 passed
+  - `tests/test_spreadsheet_import.py`: 2 passed
+  - `tests/test_source_policy.py`: 14 passed
+  - `tests/test_normalized_contract.py`: 5 passed
+  - `tests/test_migrations.py`: 3 passed
+  - `tests/test_import_data_quality.py`: 6 passed
+  - `tests/test_ford_ranger_fixture.py`: 3 passed
+  - `tests/test_cli_init_db.py`: 2 passed
+  - `tests/test_alfazen_versioning.py`: 6 passed
 
-- `/home/zenusr/.venv_carvalue/bin/pytest -v` — PASS (54 passed in 55s)
-- `/home/zenusr/.venv_carvalue/bin/ruff check .` — PASS (All checks passed)
-- `/home/zenusr/.venv_carvalue/bin/ruff format --check .` — PASS (All 35 files formatted)
-- `/home/zenusr/.venv_carvalue/bin/mypy packages services` — PASS (Success: no issues found in 14 source files)
+## Next Milestone: M6 (Public Web Experience)
 
-## Decisions and context
-
-- Python virtual environment is located on native ext4 filesystem at `/home/zenusr/.venv_carvalue` to avoid 9p Windows mount limitations.
-- All persisted money values use integer cents (`asking_price_cad_cents`).
-- All mileage values use integer non-negative kilometres (`mileage_km`).
-- CatBoost categorical feature series are aligned to DataFrame index before model fitting and prediction.
-- API inputs outside supported Alberta taxonomy or training domain bounds return `confidence_label="insufficient_data"` with estimate CAD 0 rather than fabricated precision.
-
-## Blockers
-
-- None.
-
-## Next action
-
-1. Proceed to **Milestone M5 (Admin and workers)**:
-   - Admin authentication & CSRF session cookies.
-   - Dataset snapshotting and model promotion/rollback commands.
-   - Background worker leases, rate limits, and run counters.
-2. Proceed to **Milestone M6 (Public web experience)**:
-   - Next.js 14 frontend in `apps/web`.
-   - Accessible valuation form and responsive price-estimate results display.
+The next planned milestone is **Milestone M6 (Public web experience)**:
+- Next.js 14 public visitor UI in `apps/web`.
+- Accessible Alberta pickup valuation form (make, model, year, mileage, trim, drivetrain, seller type).
+- Responsive valuation results display with rounded CAD estimate, 80% prediction interval bar, confidence badge, comparables count, freshness, and mandatory disclaimer.
+- Admin UI for model promotion/rollback, dataset snapshots, source toggling, and data quality issue reviews.

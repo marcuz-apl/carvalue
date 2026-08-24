@@ -7,9 +7,9 @@ from sqlalchemy import select
 from carvalue_core.listings import ListingObservation
 from carvalue_core.persistence import (
     Base,
+    CrawlRun,
     Listing,
     Source,
-    SourceRun,
     make_engine,
     new_session_factory,
 )
@@ -89,28 +89,23 @@ def test_lease_manager_claims_and_blocks_concurrent_runs(tmp_path) -> None:
         create_test_source(session, source_id=1)
 
         # 1. Claim initial lease
-        run1 = SourceLeaseManager.claim_lease(session, source_id=1, lease_seconds=300)
+        run1 = SourceLeaseManager.claim_lease(session, source_id=1)
         session.commit()
         assert run1 is not None
-        assert run1.status == "running"
-        assert run1.lease_expires_at is not None
+        assert run1.state == "running"
 
         # 2. Second worker attempts concurrent run on same source -> blocked
-        run2 = SourceLeaseManager.claim_lease(session, source_id=1, lease_seconds=300)
+        run2 = SourceLeaseManager.claim_lease(session, source_id=1)
         assert run2 is None
 
-        # 3. Renew lease
-        renewed = SourceLeaseManager.renew_lease(session, run_id=run1.id, lease_seconds=600)
-        assert renewed is True
-
-        # 4. Release lease
-        SourceLeaseManager.release_lease(session, run_id=run1.id, final_status="completed")
+        # 3. Release lease
+        SourceLeaseManager.release_lease(session, run_id=run1.id, final_state="succeeded")
         session.commit()
 
-        # 5. Third worker can now claim lease after release
-        run3 = SourceLeaseManager.claim_lease(session, source_id=1, lease_seconds=300)
+        # 4. Third worker can now claim lease after release
+        run3 = SourceLeaseManager.claim_lease(session, source_id=1)
         assert run3 is not None
-        assert run3.status == "running"
+        assert run3.state == "running"
 
     engine.dispose()
 
@@ -148,10 +143,10 @@ def test_worker_job_runner_executes_batch_with_counters(tmp_path) -> None:
 
         assert preflight.passed is True
         assert run is not None
-        assert run.status == "completed"
-        assert run.records_fetched == 5
-        assert run.records_accepted == 5
-        assert run.records_rejected == 0
+        assert run.state == "succeeded"
+        assert run.fetched == 5
+        assert run.accepted == 5
+        assert run.failed == 0
 
         # Confirm listings were written
         listings = session.execute(select(Listing).where(Listing.source_id == 1)).scalars().all()

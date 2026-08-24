@@ -6,6 +6,7 @@ this package owns HTTP boundaries, settings, sessions, and CLI commands.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from collections.abc import AsyncGenerator
@@ -13,10 +14,26 @@ from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
 from typing import Any
 
+from fastapi import (
+    Cookie,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session as SqlAlchemySession, sessionmaker
+
 import carvalue_core.persistence as persistence
 from carvalue_core.confidence import ConfidenceLabel
 from carvalue_core.models import ValuationModel, evaluate_prediction
 from carvalue_core.persistence import (
+    AdminSession,
+    AdminUser,
     AuditEvent,
     DataQualityIssue,
     DatasetSnapshot,
@@ -30,11 +47,14 @@ from carvalue_core.persistence import (
     resolve_model,
     resolve_trim,
 )
-from fastapi import FastAPI, Request, status
-from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session as SqlAlchemySession
-from sqlalchemy.orm import sessionmaker
+from carvalue_core.security import (
+    create_admin_session,
+    record_audit_event,
+    revoke_admin_session,
+    validate_admin_session,
+    verify_csrf_token,
+    verify_password,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +92,50 @@ def get_db() -> SqlAlchemySession:
     engine = persistence.make_engine(app.state.db_url)
     session_factory = sessionmaker(bind=engine, expire_on_commit=False)
     return session_factory()
+
+
+# ---------------------------------------------------------------------------
+# Admin Auth & CSRF Dependencies
+# ---------------------------------------------------------------------------
+
+
+def get_current_admin(
+    carvalue_admin_session: str | None = Cookie(default=None),
+) -> tuple[AdminSession, AdminUser]:
+    """Validate authenticated admin session from secure cookie."""
+    if not carvalue_admin_session:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+        )
+    db = get_db()
+    try:
+        res = validate_admin_session(db, carvalue_admin_session)
+        if not res:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired admin session",
+            )
+        admin_sess, user = res
+        db.commit()
+        return admin_sess, user
+    finally:
+        db.close()
+
+
+def require_csrf(
+    request: Request,
+    auth: tuple[AdminSession, AdminUser] = Depends(get_current_admin),
+    x_csrf_token: str | None = Header(default=None),
+) -> None:
+    """Enforce CSRF token verification on state-changing requests."""
+    admin_sess, _ = auth
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        if not x_csrf_token or not verify_csrf_token(admin_sess, x_csrf_token):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid or missing CSRF token",
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +179,27 @@ class TaxonomyResponse(BaseModel):
     trims_by_model: dict[str, list[str]] = Field(default_factory=dict)
 
 
+class LoginRequest(BaseModel):
+    email: str = Field(..., min_length=3)
+    password: str = Field(..., min_length=1)
+
+
+class LoginResponse(BaseModel):
+    email: str
+    display_name: str | None
+    csrf_token: str
+
+
+class CreateSnapshotRequest(BaseModel):
+    label: str = Field(..., min_length=1)
+    description: str | None = Field(default=None)
+
+
+class ResolveIssueRequest(BaseModel):
+    action: str = Field(..., pattern="^(resolved|dismissed)$")
+    notes: str | None = Field(default=None)
+
+
 # ---------------------------------------------------------------------------
 # Public routes
 # ---------------------------------------------------------------------------
@@ -132,17 +217,10 @@ async def health_check() -> dict[str, bool]:
     summary="Estimate an Alberta pickup asking price.",
 )
 async def valuation(request: ValuationRequest, req: Request) -> ValuationResponse:
-    """Return an explainable asking-price estimate for a supported vehicle.
-
-    The result is an **asking-price estimate**, not an appraisal or guaranteed
-    sale price. It includes an 80% prediction interval, confidence label,
-    comparable count, data freshness, and a clear disclaimer. Out-of-distribution
-    inputs are refused with ``insufficient_data`` rather than fabricated precision.
-    """
+    """Return an explainable asking-price estimate for a supported vehicle."""
     start_time = time.perf_counter()
     db = get_db()
     try:
-        # 1. Parse valuation date
         ref_header = req.headers.get("x-valuation-date")
         if ref_header:
             try:
@@ -152,7 +230,6 @@ async def valuation(request: ValuationRequest, req: Request) -> ValuationRespons
         else:
             val_date = date.today()
 
-        # 2. Resolve taxonomy
         make_canonical = resolve_make(db, request.make)
         model_canonical = (
             resolve_model(db, make_canonical, request.model) if make_canonical else None
@@ -162,12 +239,13 @@ async def valuation(request: ValuationRequest, req: Request) -> ValuationRespons
             if (make_canonical and model_canonical and request.trim)
             else None
         )
-        drivetrain_canonical = request.drivetrain if request.drivetrain in ("2wd", "4wd") else None
+        drivetrain_canonical = (
+            request.drivetrain if request.drivetrain in ("2wd", "4wd") else None
+        )
         seller_type_canonical = (
             request.seller_type if request.seller_type in ("dealer", "private") else None
         )
 
-        # 3. Load active model
         model_row = db.execute(
             select(ModelVersion).where(ModelVersion.status == "active").limit(1)
         ).scalar_one_or_none()
@@ -193,7 +271,6 @@ async def valuation(request: ValuationRequest, req: Request) -> ValuationRespons
                 valuation_date=val_date,
             )
 
-        # 4. Load model artifact
         try:
             model = ValuationModel.load(model_row.artifact_path)
         except Exception as exc:
@@ -208,7 +285,6 @@ async def valuation(request: ValuationRequest, req: Request) -> ValuationRespons
                 valuation_date=val_date,
             )
 
-        # 5. Query active comparables
         comp_query = (
             select(ListingPriceHistory)
             .join(Listing, Listing.id == ListingPriceHistory.listing_id)
@@ -228,7 +304,6 @@ async def valuation(request: ValuationRequest, req: Request) -> ValuationRespons
         else:
             data_freshness_days = float("inf")
 
-        # 6. Predict point and 80% interval
         features = {
             "model_year": request.year,
             "mileage_km": request.mileage_km,
@@ -239,7 +314,6 @@ async def valuation(request: ValuationRequest, req: Request) -> ValuationRespons
         }
         point_raw, low_raw, high_raw = model.predict(features)
 
-        # 7. Evaluate confidence / refusal
         decision = evaluate_prediction(
             point_cad=point_raw,
             low_cad=low_raw,
@@ -261,7 +335,6 @@ async def valuation(request: ValuationRequest, req: Request) -> ValuationRespons
 
         latency_ms = int((time.perf_counter() - start_time) * 1000)
 
-        # 8. Record telemetry
         _log_valuation_event(
             db=db,
             request=request,
@@ -294,7 +367,6 @@ def _log_valuation_event(
     comparables_count: int,
     latency_ms: int,
 ) -> None:
-    """Record a privacy-minimized visitor event (FR-OBS-01)."""
     try:
         ua = req.headers.get("user-agent", "").lower()
         device = "mobile" if "mobile" in ua else "desktop"
@@ -362,22 +434,143 @@ async def taxonomy() -> TaxonomyResponse:
 
 
 # ---------------------------------------------------------------------------
-# Admin routes
+# Admin routes (Session Authenticated & CSRF Protected)
 # ---------------------------------------------------------------------------
 
 
-@app.get("/admin/audit", tags=["admin"])
-async def audit_log() -> list[dict[str, Any]]:
+@app.post("/admin/login", response_model=LoginResponse, tags=["admin"])
+async def admin_login(
+    payload: LoginRequest, req: Request, response: Response
+) -> LoginResponse:
+    """Authenticate admin and issue 12-hour session + CSRF cookies."""
     db = get_db()
     try:
-        rows = db.execute(select(AuditEvent)).scalars().all()
+        user = db.execute(
+            select(AdminUser).where(AdminUser.email == payload.email)
+        ).scalar_one_or_none()
+
+        if not user or not user.is_active or not verify_password(payload.password, user.password_hash):
+            record_audit_event(
+                session=db,
+                actor_type="system",
+                actor_ref=payload.email,
+                action="admin.login_failed",
+                outcome="blocked",
+            )
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials",
+            )
+
+        ua = req.headers.get("user-agent", "")
+        admin_sess, raw_token, raw_csrf = create_admin_session(
+            session=db,
+            user=user,
+            duration_hours=12,
+            user_agent_coarse=ua,
+        )
+        record_audit_event(
+            session=db,
+            actor_type="admin",
+            actor_ref=user.email,
+            action="admin.login",
+            target_type="admin_user",
+            target_ref=str(user.id),
+            outcome="ok",
+        )
+        db.commit()
+
+        # Set secure session and CSRF cookies
+        response.set_cookie(
+            key="carvalue_admin_session",
+            value=raw_token,
+            max_age=43200,
+            httponly=True,
+            samesite="lax",
+            path="/admin",
+        )
+        response.set_cookie(
+            key="carvalue_admin_csrf",
+            value=raw_csrf,
+            max_age=43200,
+            httponly=False,
+            samesite="lax",
+            path="/admin",
+        )
+
+        return LoginResponse(
+            email=user.email,
+            display_name=user.display_name,
+            csrf_token=raw_csrf,
+        )
+    finally:
+        db.close()
+
+
+@app.post("/admin/logout", tags=["admin"])
+async def admin_logout(
+    response: Response,
+    auth: tuple[AdminSession, AdminUser] = Depends(get_current_admin),
+    carvalue_admin_session: str | None = Cookie(default=None),
+) -> dict[str, bool]:
+    """Revoke admin session and clear authentication cookies."""
+    db = get_db()
+    try:
+        _, user = auth
+        if carvalue_admin_session:
+            revoke_admin_session(db, carvalue_admin_session)
+        record_audit_event(
+            session=db,
+            actor_type="admin",
+            actor_ref=user.email,
+            action="admin.logout",
+            outcome="ok",
+        )
+        db.commit()
+
+        response.delete_cookie("carvalue_admin_session", path="/admin")
+        response.delete_cookie("carvalue_admin_csrf", path="/admin")
+        return {"ok": True}
+    finally:
+        db.close()
+
+
+@app.get("/admin/me", tags=["admin"])
+async def admin_me(
+    auth: tuple[AdminSession, AdminUser] = Depends(get_current_admin),
+) -> dict[str, Any]:
+    """Return profile for currently authenticated admin."""
+    _, user = auth
+    return {
+        "id": user.id,
+        "email": user.email,
+        "display_name": user.display_name,
+        "is_active": user.is_active,
+    }
+
+
+@app.get("/admin/audit", tags=["admin"])
+async def audit_log(
+    auth: tuple[AdminSession, AdminUser] = Depends(get_current_admin),
+) -> list[dict[str, Any]]:
+    db = get_db()
+    try:
+        rows = (
+            db.execute(select(AuditEvent).order_by(AuditEvent.occurred_at.desc()).limit(200))
+            .scalars()
+            .all()
+        )
         return [
             {
                 "occurred_at": row.occurred_at.isoformat(),
                 "actor_type": row.actor_type,
+                "actor_ref": row.actor_ref,
                 "action": row.action,
                 "target_type": row.target_type,
+                "target_ref": row.target_ref,
                 "outcome": row.outcome,
+                "details_json": row.details_json,
             }
             for row in rows
         ]
@@ -386,7 +579,9 @@ async def audit_log() -> list[dict[str, Any]]:
 
 
 @app.get("/admin/sources", tags=["admin"])
-async def list_sources() -> list[dict[str, Any]]:
+async def list_sources(
+    auth: tuple[AdminSession, AdminUser] = Depends(get_current_admin),
+) -> list[dict[str, Any]]:
     db = get_db()
     try:
         rows = db.execute(select(Source)).scalars().all()
@@ -397,6 +592,9 @@ async def list_sources() -> list[dict[str, Any]]:
                 "source_type": row.source_type,
                 "permission_status": row.permission_status,
                 "enabled": row.enabled,
+                "policy_reviewed_at": (
+                    row.policy_reviewed_at.isoformat() if row.policy_reviewed_at else None
+                ),
             }
             for row in rows
         ]
@@ -404,8 +602,43 @@ async def list_sources() -> list[dict[str, Any]]:
         db.close()
 
 
+@app.post(
+    "/admin/sources/{source_id}/toggle",
+    dependencies=[Depends(require_csrf)],
+    tags=["admin"],
+)
+async def toggle_source(
+    source_id: int,
+    auth: tuple[AdminSession, AdminUser] = Depends(get_current_admin),
+) -> dict[str, Any]:
+    """Toggle enabled status of a source."""
+    db = get_db()
+    try:
+        _, user = auth
+        source = db.get(Source, source_id)
+        if not source:
+            raise HTTPException(status_code=404, detail="Source not found")
+        source.enabled = not source.enabled
+        record_audit_event(
+            session=db,
+            actor_type="admin",
+            actor_ref=user.email,
+            action="source.toggle",
+            target_type="source",
+            target_ref=str(source_id),
+            outcome="ok",
+            details_json={"enabled": source.enabled},
+        )
+        db.commit()
+        return {"id": source.id, "name": source.name, "enabled": source.enabled}
+    finally:
+        db.close()
+
+
 @app.get("/admin/models", tags=["admin"])
-async def list_models() -> list[dict[str, Any]]:
+async def list_models(
+    auth: tuple[AdminSession, AdminUser] = Depends(get_current_admin),
+) -> list[dict[str, Any]]:
     db = get_db()
     try:
         rows = db.execute(select(ModelVersion)).scalars().all()
@@ -416,6 +649,8 @@ async def list_models() -> list[dict[str, Any]]:
                 "status": row.status,
                 "trained_at_utc": row.trained_at_utc.isoformat(),
                 "metrics_json": row.metrics_json,
+                "artifact_path": row.artifact_path,
+                "model_hash_sha256": row.model_hash_sha256,
             }
             for row in rows
         ]
@@ -423,8 +658,91 @@ async def list_models() -> list[dict[str, Any]]:
         db.close()
 
 
+@app.post(
+    "/admin/models/{model_id}/promote",
+    dependencies=[Depends(require_csrf)],
+    tags=["admin"],
+)
+async def promote_model(
+    model_id: int,
+    auth: tuple[AdminSession, AdminUser] = Depends(get_current_admin),
+) -> dict[str, Any]:
+    """Promote a model version to active status (PRD FR-ADM-04, FR-ML-09)."""
+    db = get_db()
+    try:
+        _, user = auth
+        target = db.get(ModelVersion, model_id)
+        if not target:
+            raise HTTPException(status_code=404, detail="Model version not found")
+
+        # Archive current active models
+        active_models = db.execute(
+            select(ModelVersion).where(ModelVersion.status == "active")
+        ).scalars().all()
+        for m in active_models:
+            m.status = "retired"
+
+        target.status = "active"
+        record_audit_event(
+            session=db,
+            actor_type="admin",
+            actor_ref=user.email,
+            action="model.promote",
+            target_type="model_version",
+            target_ref=str(model_id),
+            outcome="ok",
+            details_json={"algorithm": target.algorithm},
+        )
+        db.commit()
+        return {"id": target.id, "algorithm": target.algorithm, "status": target.status}
+    finally:
+        db.close()
+
+
+@app.post(
+    "/admin/models/{model_id}/rollback",
+    dependencies=[Depends(require_csrf)],
+    tags=["admin"],
+)
+async def rollback_model(
+    model_id: int,
+    auth: tuple[AdminSession, AdminUser] = Depends(get_current_admin),
+) -> dict[str, Any]:
+    """Roll back model promotion and restore a target model version."""
+    db = get_db()
+    try:
+        _, user = auth
+        target = db.get(ModelVersion, model_id)
+        if not target:
+            raise HTTPException(status_code=404, detail="Model version not found")
+
+        active_models = db.execute(
+            select(ModelVersion).where(ModelVersion.status == "active")
+        ).scalars().all()
+        for m in active_models:
+            m.status = "retired"
+
+        target.status = "active"
+        record_audit_event(
+            session=db,
+            actor_type="admin",
+            actor_ref=user.email,
+            action="model.rollback",
+            target_type="model_version",
+            target_ref=str(model_id),
+            outcome="ok",
+            details_json={"algorithm": target.algorithm},
+        )
+        db.commit()
+        return {"id": target.id, "algorithm": target.algorithm, "status": target.status}
+    finally:
+        db.close()
+
+
 @app.get("/admin/taxonomy", tags=["admin"])
-async def admin_taxonomy() -> list[dict[str, Any]]:
+async def admin_taxonomy(
+    auth: tuple[AdminSession, AdminUser] = Depends(get_current_admin),
+) -> list[dict[str, Any]]:
     db = get_db()
     try:
         rows = db.execute(select(VehicleTaxonomy)).scalars().all()
@@ -442,14 +760,18 @@ async def admin_taxonomy() -> list[dict[str, Any]]:
 
 
 @app.get("/admin/dataset-snapshots", tags=["admin"])
-async def list_snapshots() -> list[dict[str, Any]]:
+async def list_snapshots(
+    auth: tuple[AdminSession, AdminUser] = Depends(get_current_admin),
+) -> list[dict[str, Any]]:
     db = get_db()
     try:
         rows = db.execute(select(DatasetSnapshot)).scalars().all()
         return [
             {
+                "id": row.id,
                 "label": row.label,
                 "row_count": row.row_count,
+                "content_checksum_sha256": row.content_checksum_sha256,
                 "min_observed_at_utc": (
                     row.min_observed_at.isoformat() if row.min_observed_at else None
                 ),
@@ -463,8 +785,71 @@ async def list_snapshots() -> list[dict[str, Any]]:
         db.close()
 
 
+@app.post(
+    "/admin/dataset-snapshots",
+    dependencies=[Depends(require_csrf)],
+    tags=["admin"],
+)
+async def create_snapshot(
+    payload: CreateSnapshotRequest,
+    auth: tuple[AdminSession, AdminUser] = Depends(get_current_admin),
+) -> dict[str, Any]:
+    """Create a frozen dataset snapshot record (PRD FR-ADM-04, FR-ML-09)."""
+    db = get_db()
+    try:
+        _, user = auth
+        listings = db.execute(
+            select(ListingPriceHistory).order_by(ListingPriceHistory.id.asc())
+        ).scalars().all()
+
+        row_count = len(listings)
+        min_observed = min((l.observed_at for l in listings), default=None)
+        max_observed = max((l.observed_at for l in listings), default=None)
+
+        # Compute checksum across dataset
+        hasher = hashlib.sha256()
+        for l in listings:
+            hasher.update(
+                f"{l.id}:{l.asking_price_cad_cents}:{l.observed_at.isoformat()}".encode()
+            )
+        checksum = hasher.hexdigest()
+
+        snapshot = DatasetSnapshot(
+            label=payload.label,
+            definition_json={"filter": "alberta_pickups", "description": payload.description or ""},
+            row_count=row_count,
+            min_observed_at=min_observed,
+            max_observed_at=max_observed,
+            content_checksum_sha256=checksum,
+        )
+        db.add(snapshot)
+        record_audit_event(
+            session=db,
+            actor_type="admin",
+            actor_ref=user.email,
+            action="dataset.snapshot_created",
+            target_type="dataset_snapshot",
+            target_ref=payload.label,
+            outcome="ok",
+            details_json={"row_count": row_count, "checksum": checksum},
+        )
+        db.commit()
+        return {
+            "id": snapshot.id,
+            "label": snapshot.label,
+            "row_count": snapshot.row_count,
+            "content_checksum_sha256": snapshot.content_checksum_sha256,
+        }
+    finally:
+        db.close()
+
+
 @app.get("/admin/listings", tags=["admin"])
-async def list_listings(limit: int = 100, offset: int = 0) -> dict[str, Any]:
+async def list_listings(
+    limit: int = 100,
+    offset: int = 0,
+    auth: tuple[AdminSession, AdminUser] = Depends(get_current_admin),
+) -> dict[str, Any]:
     db = get_db()
     try:
         total = db.execute(select(func.count(Listing.id))).scalar_one()
@@ -473,6 +858,7 @@ async def list_listings(limit: int = 100, offset: int = 0) -> dict[str, Any]:
             "total": int(total),
             "listings": [
                 {
+                    "id": row.id,
                     "make": row.make,
                     "model": row.model,
                     "trim": row.trim,
@@ -490,7 +876,10 @@ async def list_listings(limit: int = 100, offset: int = 0) -> dict[str, Any]:
 
 
 @app.get("/admin/listings/{listing_id}/price-history", tags=["admin"])
-async def listing_price_history(listing_id: int) -> dict[str, Any]:
+async def listing_price_history(
+    listing_id: int,
+    auth: tuple[AdminSession, AdminUser] = Depends(get_current_admin),
+) -> dict[str, Any]:
     db = get_db()
     try:
         rows = (
@@ -515,7 +904,10 @@ async def listing_price_history(listing_id: int) -> dict[str, Any]:
 
 
 @app.get("/admin/data-quality", tags=["admin"])
-async def data_quality_issues(status_filter: str | None = None) -> dict[str, Any]:
+async def data_quality_issues(
+    status_filter: str | None = None,
+    auth: tuple[AdminSession, AdminUser] = Depends(get_current_admin),
+) -> dict[str, Any]:
     db = get_db()
     try:
         query = select(DataQualityIssue)
@@ -525,6 +917,7 @@ async def data_quality_issues(status_filter: str | None = None) -> dict[str, Any
         return {
             "issues": [
                 {
+                    "id": row.id,
                     "listing_id": int(row.listing_id) if row.listing_id is not None else None,
                     "source_record_ref": row.source_record_ref,
                     "reason_code": row.reason_code,
@@ -537,8 +930,47 @@ async def data_quality_issues(status_filter: str | None = None) -> dict[str, Any
         db.close()
 
 
+@app.post(
+    "/admin/data-quality/{issue_id}/resolve",
+    dependencies=[Depends(require_csrf)],
+    tags=["admin"],
+)
+async def resolve_data_quality_issue(
+    issue_id: int,
+    payload: ResolveIssueRequest,
+    auth: tuple[AdminSession, AdminUser] = Depends(get_current_admin),
+) -> dict[str, Any]:
+    """Resolve or dismiss a flagged data quality issue."""
+    db = get_db()
+    try:
+        _, user = auth
+        issue = db.get(DataQualityIssue, issue_id)
+        if not issue:
+            raise HTTPException(status_code=404, detail="Issue not found")
+        issue.status = payload.action
+        issue.reviewer = user.email
+        issue.resolved_at = datetime.now(UTC)
+        record_audit_event(
+            session=db,
+            actor_type="admin",
+            actor_ref=user.email,
+            action="data_quality.resolve",
+            target_type="data_quality_issue",
+            target_ref=str(issue_id),
+            outcome="ok",
+            details_json={"status": payload.action, "notes": payload.notes},
+        )
+        db.commit()
+        return {"id": issue.id, "status": issue.status}
+    finally:
+        db.close()
+
+
 @app.get("/admin/valuation-events", tags=["admin"])
-async def valuation_events(limit: int = 100) -> dict[str, Any]:
+async def valuation_events(
+    limit: int = 100,
+    auth: tuple[AdminSession, AdminUser] = Depends(get_current_admin),
+) -> dict[str, Any]:
     db = get_db()
     try:
         total = db.execute(select(func.count(ValuationEvent.id))).scalar_one()
@@ -557,6 +989,7 @@ async def valuation_events(limit: int = 100) -> dict[str, Any]:
                     "event_type": row.event_type,
                     "confidence_label": row.confidence_label,
                     "comparables_count": row.comparables_count,
+                    "latency_ms": row.latency_ms,
                     "feedback_useful": row.feedback_useful,
                 }
                 for row in rows

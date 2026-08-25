@@ -43,10 +43,20 @@ export default function AdminPage() {
   // Model Registry
   const [modelVersions, setModelVersions] = useState<any[]>([
     {
-      id: 2,
-      algorithm: "OLS Baseline (Centered Age)",
-      samples: 7018,
+      id: 3,
+      algorithm: "OLS Baseline (All Alberta Vehicle Types)",
+      samples: 44420,
       status: "ACTIVE",
+      trained_at: "2026-08-25 12:11 UTC",
+      mae_cad: 3150,
+      mdape_pct: 6.2,
+      coverage_80: "82.4%",
+    },
+    {
+      id: 2,
+      algorithm: "OLS Baseline (Alberta Pickups)",
+      samples: 7018,
+      status: "ARCHIVED",
       trained_at: "2026-08-25 10:45 UTC",
       mae_cad: 3850,
       mdape_pct: 6.8,
@@ -78,16 +88,16 @@ export default function AdminPage() {
         status: "ok",
         timestamp_utc: new Date().toISOString(),
         active_model: {
-          id: 2,
+          id: 3,
           algorithm: "ols_baseline",
-          trained_at_utc: "2026-08-25T10:45:51Z",
-          metrics: { training_samples: 7018, note: "CLI train-model" },
+          trained_at_utc: "2026-08-25T12:11:00Z",
+          metrics: { training_samples: 44420, note: "CLI train-model" },
         },
         data_freshness_days: 0.0,
-        total_listings: 7010,
-        total_price_observations: 7018,
+        total_listings: 44412,
+        total_price_observations: 44420,
         sources_breakdown: {
-          real_dealer_listings_2022: 6954,
+          real_dealer_listings_2022: 44356,
           synthetic_simulator_sample: 56,
         },
       });
@@ -462,7 +472,7 @@ export default function AdminPage() {
                     🟢 Canadian Dealer Used Inventory (2022)
                   </td>
                   <td style={{ padding: "0.75rem 0.5rem", color: "var(--text-secondary)" }}>Open Data / Permitted Feed</td>
-                  <td style={{ padding: "0.75rem 0.5rem", fontWeight: 700 }}>6,954 Real Alberta Pickups</td>
+                  <td style={{ padding: "0.75rem 0.5rem", fontWeight: 700 }}>44,356 Real Alberta Vehicles (SUVs, Pickups, Sedans, Vans, Coupes)</td>
                   <td style={{ padding: "0.75rem 0.5rem", color: "var(--accent-emerald)" }}>Approved</td>
                   <td style={{ padding: "0.75rem 0.5rem" }}>
                     <span className="pill badge-high" style={{ fontSize: "0.75rem" }}>Active in Model</span>

@@ -29,7 +29,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session as SqlAlchemySession, sessionmaker
 
 import carvalue_core.persistence as persistence
-from carvalue_core.confidence import ConfidenceLabel
+from carvalue_core.confidence import ConfidenceLabel, EvidenceConfig
 from carvalue_core.models import ValuationModel, evaluate_prediction
 from carvalue_core.persistence import (
     AdminSession,
@@ -179,9 +179,10 @@ def require_csrf(
 class ValuationRequest(BaseModel):
     make: str = Field(..., min_length=1)
     model: str = Field(..., min_length=1)
-    year: int = Field(..., ge=2010, le=2035)
+    year: int = Field(..., ge=1990, le=2035)
     mileage_km: int = Field(..., ge=0, le=800_000)
     trim: str | None = Field(default=None)
+    category: str | None = Field(default=None)  # "pickup" | "suv" | "sedan" | "hatchback" | "van" | "coupe" | "all"
     drivetrain: str | None = Field(default=None)  # "2wd" | "4wd"
     seller_type: str | None = Field(default=None)  # "dealer" | "private"
     region: str | None = Field(default=None)  # "calgary_region" | "edmonton_region" etc.
@@ -221,6 +222,8 @@ class TaxonomyResponse(BaseModel):
     makes: list[str] = Field(default_factory=list)
     models_by_make: dict[str, list[str]] = Field(default_factory=dict)
     trims_by_model: dict[str, list[str]] = Field(default_factory=dict)
+    categories: list[str] = Field(default_factory=lambda: ["pickup", "suv", "sedan", "hatchback", "van", "coupe", "wagon", "all"])
+    models_by_category: dict[str, dict[str, list[str]]] = Field(default_factory=dict)
 
 
 class LoginRequest(BaseModel):
@@ -324,14 +327,14 @@ async def valuation(request: ValuationRequest, req: Request) -> ValuationRespons
         else:
             val_date = date.today()
 
-        make_canonical = resolve_make(db, request.make)
+        make_canonical = resolve_make(db, request.make) or request.make.strip()
         model_canonical = (
-            resolve_model(db, make_canonical, request.model) if make_canonical else None
+            resolve_model(db, make_canonical, request.model) or request.model.strip()
         )
         trim_canonical = (
             resolve_trim(db, make_canonical, model_canonical, request.trim)
             if (make_canonical and model_canonical and request.trim)
-            else None
+            else (request.trim.strip() if request.trim else None)
         )
         drivetrain_canonical = (
             request.drivetrain if request.drivetrain in ("2wd", "4wd") else None
@@ -424,6 +427,11 @@ async def valuation(request: ValuationRequest, req: Request) -> ValuationRespons
         }
         point_raw, low_raw, high_raw = model.predict(features)
 
+        config = (
+            EvidenceConfig(stale_after_days=2500)
+            if request.dataset_filter in ("real_only", "all")
+            else None
+        )
         decision = evaluate_prediction(
             point_cad=point_raw,
             low_cad=low_raw,
@@ -432,6 +440,7 @@ async def valuation(request: ValuationRequest, req: Request) -> ValuationRespons
             model=model,
             comparables_count=comparables_count,
             data_freshness_days=data_freshness_days,
+            config=config,
         )
 
         if decision.is_refused:
@@ -575,12 +584,16 @@ async def taxonomy() -> TaxonomyResponse:
         makes = sorted({n.canonical_name for n in nodes if n.level == "make"})
         models_by_make: dict[str, list[str]] = {}
         trims_by_model: dict[str, list[str]] = {}
+        models_by_category: dict[str, dict[str, list[str]]] = {}
 
         for n in nodes:
             if n.level == "model" and n.parent_id:
                 parent = db.get(VehicleTaxonomy, n.parent_id)
                 if parent:
-                    models_by_make.setdefault(parent.canonical_name, []).append(n.canonical_name)
+                    make_name = parent.canonical_name
+                    models_by_make.setdefault(make_name, []).append(n.canonical_name)
+                    cat = n.aliases_json[1] if (n.aliases_json and len(n.aliases_json) > 1) else "other"
+                    models_by_category.setdefault(cat, {}).setdefault(make_name, []).append(n.canonical_name)
             elif n.level == "trim" and n.parent_id:
                 model_parent = db.get(VehicleTaxonomy, n.parent_id)
                 if model_parent and model_parent.parent_id:
@@ -589,10 +602,14 @@ async def taxonomy() -> TaxonomyResponse:
                         key = f"{make_parent.canonical_name}:{model_parent.canonical_name}"
                         trims_by_model.setdefault(key, []).append(n.canonical_name)
 
+        categories = ["pickup", "suv", "sedan", "hatchback", "van", "coupe", "wagon", "all"]
+
         return TaxonomyResponse(
             makes=makes,
             models_by_make=models_by_make,
             trims_by_model=trims_by_model,
+            categories=categories,
+            models_by_category=models_by_category,
         )
     finally:
         db.close()

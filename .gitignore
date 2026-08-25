@@ -31,6 +31,7 @@ coverage/
 *.sqlite
 *.sqlite3
 !data/carvalue.db
+data/ca-dealers-used-2022.csv
 models/
 raw-crawls/
 artifacts/

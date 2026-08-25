@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# CarValue Unified Application Launcher (Port 4020)
+# Launches backend ML service internally & Next.js frontend unified on port 4020.
+# ==============================================================================
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$SCRIPT_DIR"
+
+echo "🚀 Starting CarValue (Unified Entry Point: http://localhost:4020)..."
+
+# Ensure environment variables
+export PYTHONPATH="$SCRIPT_DIR/packages/core:$SCRIPT_DIR/packages/schemas:$SCRIPT_DIR/services/api:$SCRIPT_DIR/services/worker:${PYTHONPATH:-}"
+
+# 1. Start Python backend in background (internal loopback only)
+if [[ -f "$SCRIPT_DIR/.venv/bin/python" ]]; then
+    PYTHON_EXEC="$SCRIPT_DIR/.venv/bin/python"
+else
+    PYTHON_EXEC="python3"
+fi
+
+echo "  -> Starting Internal ML Valuation Service (127.0.0.1:8042)..."
+"$PYTHON_EXEC" -m carvalue_api.cli run --host 127.0.0.1 --port 8042 --db-url "sqlite:///./data/carvalue.db" &
+BACKEND_PID=$!
+
+# Trap signals to cleanly kill backend on exit
+cleanup() {
+    echo "Shutting down CarValue services..."
+    kill "$BACKEND_PID" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+# Wait 2 seconds for backend to initialize
+sleep 2
+
+# 2. Start Next.js frontend on Port 4020
+echo "  -> Starting Next.js Web UI on http://localhost:4020..."
+npm --prefix apps/web run dev

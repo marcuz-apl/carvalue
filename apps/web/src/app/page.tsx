@@ -1,13 +1,21 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import RefusalCard from "../components/RefusalCard";
 import ValuationForm from "../components/ValuationForm";
 import ValuationResult from "../components/ValuationResult";
 import { fetchValuation } from "../lib/api";
 import { ValuationRequest, ValuationResponse } from "../lib/types";
 
+const BROADCAST_ITEMS = [
+  { icon: "⚡", label: "Market Calibration", text: "44,412 Calibrated Alberta Dealer & Market Listings" },
+  { icon: "🎯", label: "Predictive Intervals", text: "80% Empirical Uncertainty Prediction Intervals" },
+  { icon: "🛡️", label: "Consumer Privacy", text: "Zero Visitor Tracking • Anonymous & Private (AB PIPA / PIPEDA)" },
+  { icon: "🛻", label: "Coverage", text: "Pickups, SUVs, Sedans, Coupes & Vans Across Alberta" },
+];
+
 export default function HomePage() {
+  const [broadcastIdx, setBroadcastIdx] = useState<number>(0);
   const [request, setRequest] = useState<ValuationRequest>({
     make: "Ford",
     model: "F-150",
@@ -23,6 +31,13 @@ export default function HomePage() {
   const [result, setResult] = useState<ValuationResponse | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setBroadcastIdx((prev) => (prev + 1) % BROADCAST_ITEMS.length);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, []);
 
   const handleValuationSubmit = async (req: ValuationRequest) => {
     setRequest(req);
@@ -59,29 +74,38 @@ export default function HomePage() {
 
   return (
     <div>
-      {/* Hero Section */}
+      {/* Compact Hero Section with Sliding Broadcast Bar */}
       <section className="hero-section">
-        <div className="hero-tag" id="hero-tag">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-          </svg>
-          Calibrated for Alberta Vehicle Markets (44,412 Listings)
-        </div>
-
         <h1 className="hero-title" id="page-hero-title">
-          Alberta Used Vehicle <br />
+          <span className="hero-title-prefix">Alberta Used Vehicle</span>
           <span className="hero-title-gradient">Asking-Price Intelligence</span>
         </h1>
 
-        <p className="hero-subtitle">
-          Transparent, evidence-based market valuations for Pickups, SUVs, Sedans, Hatchbacks, and Vans across Alberta with 80% prediction intervals and zero tracking.
-        </p>
+        {/* Dynamic Sliding Broadcast Ticker */}
+        <div className="broadcast-ticker" id="broadcast-ticker" role="region" aria-label="Market Highlights">
+          <div className="broadcast-item" key={broadcastIdx}>
+            <span className="broadcast-icon">{BROADCAST_ITEMS[broadcastIdx].icon}</span>
+            <span className="broadcast-label">{BROADCAST_ITEMS[broadcastIdx].label}:</span>
+            <span className="broadcast-text">{BROADCAST_ITEMS[broadcastIdx].text}</span>
+          </div>
+          <div className="broadcast-dots">
+            {BROADCAST_ITEMS.map((_, idx) => (
+              <button
+                key={idx}
+                type="button"
+                className={`broadcast-dot ${idx === broadcastIdx ? "active" : ""}`}
+                onClick={() => setBroadcastIdx(idx)}
+                aria-label={`Slide ${idx + 1}`}
+              />
+            ))}
+          </div>
+        </div>
       </section>
 
       {/* Main Interactive Valuation Grid */}
       <section className="valuation-grid" aria-labelledby="form-title">
         {/* Form Column */}
-        <div>
+        <div className="grid-col">
           <ValuationForm
             onSubmit={handleValuationSubmit}
             isLoading={isLoading}
@@ -90,7 +114,7 @@ export default function HomePage() {
         </div>
 
         {/* Result Column */}
-        <div>
+        <div className="grid-col">
           {result ? (
             result.confidence_label === "insufficient_data" ? (
               <RefusalCard
@@ -104,36 +128,34 @@ export default function HomePage() {
               />
             )
           ) : (
-            <div className="glass-card result-card" style={{ textAlign: "center", justifyContent: "center", minHeight: "420px" }}>
-              <div style={{ padding: "2rem 1rem" }}>
-                <svg
-                  width="48"
-                  height="48"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  style={{ color: "var(--accent-primary)", margin: "0 auto 1rem" }}
-                >
-                  <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2" />
-                  <circle cx="7" cy="17" r="2" />
-                  <path d="M9 17h6" />
-                  <circle cx="17" cy="17" r="2" />
-                </svg>
-                <h3 style={{ fontSize: "1.25rem", fontWeight: 700, marginBottom: "0.5rem" }}>
+            <div className="glass-card result-card placeholder-card">
+              <div className="placeholder-content">
+                <div className="placeholder-icon-wrap">
+                  <svg
+                    width="32"
+                    height="32"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.75"
+                    style={{ color: "var(--accent-primary)" }}
+                  >
+                    <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2" />
+                    <circle cx="7" cy="17" r="2" />
+                    <path d="M9 17h6" />
+                    <circle cx="17" cy="17" r="2" />
+                  </svg>
+                </div>
+                <h3 className="placeholder-heading">
                   Ready to Calculate
                 </h3>
-                <p style={{ fontSize: "0.9rem", color: "var(--text-secondary)", maxWidth: "340px", margin: "0 auto 1.5rem" }}>
-                  Select your vehicle category and specifications on the left to generate an instant asking-price estimate with prediction intervals.
+                <p className="placeholder-text">
+                  Select your vehicle specifications on the left and click <strong>&quot;Get Asking-Price Estimate&quot;</strong> to generate an empirical Alberta market valuation.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => handleValuationSubmit(request)}
-                  className="submit-btn"
-                  style={{ maxWidth: "240px", margin: "0 auto" }}
-                >
-                  Run Sample Valuation
-                </button>
+                <div className="placeholder-status-pill">
+                  <span className="placeholder-status-dot"></span>
+                  <span>Awaiting inputs from the left panel</span>
+                </div>
               </div>
             </div>
           )}

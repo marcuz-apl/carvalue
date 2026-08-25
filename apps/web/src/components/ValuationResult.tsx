@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { ValuationRequest, ValuationResponse } from "../lib/types";
+import { openDisclaimerPopup } from "./DisclaimerModal";
 
 interface ValuationResultProps {
   result: ValuationResponse;
@@ -170,8 +171,32 @@ export default function ValuationResult({
         </div>
 
         {/* Mandatory Legal Disclaimer */}
-        <div className="legal-disclaimer" id="legal-disclaimer">
-          <strong>Mandatory Notice:</strong> {result.disclaimer} This asking-price estimate is generated using calibrated Alberta market data and does not constitute a guaranteed trade-in offer, binding purchase price, or certified professional appraisal.
+        <div className="legal-disclaimer" id="legal-disclaimer" style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+          <div>
+            <strong>Mandatory Notice:</strong> {result.disclaimer} This asking-price estimate is generated using calibrated Alberta market data and does not constitute a guaranteed trade-in offer, binding purchase price, or certified professional appraisal.
+          </div>
+          <button
+            type="button"
+            onClick={openDisclaimerPopup}
+            style={{
+              alignSelf: "flex-start",
+              background: "rgba(245, 158, 11, 0.12)",
+              border: "1px solid rgba(245, 158, 11, 0.3)",
+              color: "#f59e0b",
+              borderRadius: "6px",
+              padding: "0.3rem 0.65rem",
+              fontSize: "0.76rem",
+              fontWeight: 600,
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.35rem",
+              transition: "all 0.15s ease",
+            }}
+            className="hover-accent"
+          >
+            <span>⚖️ Open Mandatory Consumer Notice & Statutory Disclaimer Window</span>
+          </button>
         </div>
       </div>
     </div>

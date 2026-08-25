@@ -17,7 +17,7 @@ pip install -e .
 ./bin/carvalue init-db --db-url "sqlite:///./carvalue.db"
 
 # 3. Start API Service
-./bin/carvalue run --host 0.0.0.0 --port 8000 --db-url "sqlite:///./carvalue.db"
+./bin/carvalue run --host 0.0.0.0 --port 8042 --db-url "sqlite:///./carvalue.db"
 ```
 
 ### B. Frontend Deployment (`apps/web`)
@@ -41,9 +41,12 @@ npm run start
 
 ### B. Explicit Model Promotion
 Model training completion **never** automatically activates a model. To promote:
+1. Open the Admin ML Studio at **`http://localhost:4020/admin`**
+2. In the **ML Studio & Model Tuning** tab, locate the desired candidate model version.
+3. Click **"Promote to ACTIVE"** (or use the authenticated API proxy):
 ```bash
-# Authenticate to Admin API
-curl -X POST http://localhost:8000/admin/models/{model_id}/promote \
+# Authenticate to Admin API via Unified Port 4020 Proxy
+curl -X POST http://localhost:4020/api/admin/models/{model_id}/promote \
   -H "X-CSRF-Token: <csrf_token>" \
   --cookie "carvalue_admin_session=<session_token>"
 ```
@@ -51,8 +54,9 @@ curl -X POST http://localhost:8000/admin/models/{model_id}/promote \
 
 ### C. Instant Rollback Procedure
 If live monitoring detects valuation anomalies or regressions:
+1. Click **"Rollback"** in the Admin ML Studio (`http://localhost:4020/admin`), or:
 ```bash
-curl -X POST http://localhost:8000/admin/models/{previous_model_id}/rollback \
+curl -X POST http://localhost:4020/api/admin/models/{previous_model_id}/rollback \
   -H "X-CSRF-Token: <csrf_token>" \
   --cookie "carvalue_admin_session=<session_token>"
 ```

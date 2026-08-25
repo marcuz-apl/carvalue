@@ -155,11 +155,12 @@ export default function ValuationForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="glass-card"
+      className="glass-card valuation-form-card"
       id="valuation-form"
       aria-label="Alberta Vehicle Valuation Form"
     >
-      <h2 className="form-title" id="form-title">
+      <div className="valuation-form-body">
+        <h2 className="form-title" id="form-title">
         <svg
           width="20"
           height="20"
@@ -402,6 +403,7 @@ export default function ValuationForm({
             🧪 Simulated Only
           </button>
         </div>
+      </div>
       </div>
 
       <button

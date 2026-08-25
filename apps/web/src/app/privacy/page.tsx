@@ -1,8 +1,34 @@
+import Link from "next/link";
 import React from "react";
 
 export default function PrivacyPage() {
   return (
     <div style={{ maxWidth: "800px", margin: "0 auto", padding: "1rem 0" }}>
+      {/* Return to App Breadcrumb */}
+      <div style={{ marginBottom: "1.25rem" }}>
+        <Link
+          href="/"
+          id="btn-privacy-back-top"
+          className="footer-pill-btn hover-accent"
+          style={{ display: "inline-flex", gap: "0.5rem", alignItems: "center" }}
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="19" y1="12" x2="5" y2="12" />
+            <polyline points="12 19 5 12 12 5" />
+          </svg>
+          <span>Return to Valuation App</span>
+        </Link>
+      </div>
+
       <h1 className="hero-title" style={{ fontSize: "2.25rem", marginBottom: "1rem" }}>
         Data Rights & Privacy Policy
       </h1>
@@ -36,6 +62,38 @@ export default function PrivacyPage() {
         <p style={{ color: "var(--text-secondary)", lineHeight: 1.6, fontSize: "0.95rem" }}>
           Product telemetry captures only coarse aggregate metrics (response latency in ms, vehicle configuration, device class) with zero persistent visitor fingerprinting or IP tracking.
         </p>
+      </div>
+
+      {/* Bottom Action Area */}
+      <div style={{ marginTop: "2rem", display: "flex", justifyContent: "flex-start" }}>
+        <Link
+          href="/"
+          id="btn-privacy-back-bottom"
+          className="submit-btn"
+          style={{
+            maxWidth: "260px",
+            textDecoration: "none",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "0.5rem",
+          }}
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="19" y1="12" x2="5" y2="12" />
+            <polyline points="12 19 5 12 12 5" />
+          </svg>
+          <span>Return to Valuation App</span>
+        </Link>
       </div>
     </div>
   );

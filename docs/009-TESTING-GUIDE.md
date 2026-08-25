@@ -46,24 +46,23 @@ To test the entire web application and backend interactively in your browser:
 ./bin/carvalue train-model --db-url "sqlite:///./carvalue.db" --artifact-dir models
 ```
 
-### Step 3: Start the FastAPI Backend Server
+### Step 3: Run the Application (Unified Port 4020)
+Start the complete application:
 ```bash
-./bin/carvalue run --host 127.0.0.1 --port 8000 --db-url "sqlite:///./carvalue.db"
+./bin/start
 ```
+Or start services independently:
+- **Backend Service (Internal Loopback):** `./bin/carvalue run --host 127.0.0.1 --port 8042 --db-url "sqlite:///./carvalue.db"`
+- **Frontend & Proxy (Port 4020):** `npm --prefix apps/web run dev`
 
-### Step 4: Start the Next.js Frontend Development Server
-In a second terminal:
-```bash
-cd apps/web
-npm run dev
-```
+---
 
-### Step 5: Test Visitor Journeys in Your Browser (`http://localhost:4020`)
+### Step 4: Test Visitor Journeys in Your Browser (`http://localhost:4020`)
 
 1. **Happy Path Valuation:**
    - Select **Make:** `Ford` $\rightarrow$ **Model:** `Ranger` $\rightarrow$ **Year:** `2022` $\rightarrow$ **Trim:** `XLT`.
    - Enter **Odometer:** `45,000 km` $\rightarrow$ Select `4WD` $\rightarrow$ Click **"Get Asking-Price Estimate"**.
-   - **Expected Result:** Displays asking price in CAD (rounded to nearest $100), 80% prediction interval gradient bar (`$XX,XXX – $XX,XXX CAD`), confidence badge, Alberta comparables count, data freshness pill, and mandatory legal disclaimer.
+   - **Expected Result:** Displays asking price in CAD (rounded to nearest $100), 80% prediction interval gradient bar (`$XX,XXX – $XX,XXX CAD`), confidence badge, Alberta comparables count, data freshness pill, and mandatory legal disclaimer popup.
 
 2. **Benchmark Preset Cards:**
    - Scroll to **"Alberta Pickup Benchmarks"** and click on *2021 Ford F-150 Lariat 4x4* or *2020 Chevrolet Silverado 1500 LT*.
@@ -75,7 +74,7 @@ npm run dev
 
 4. **Anonymous Feedback Widget:**
    - Click 👍 (Yes) or 👎 (No) below any estimate result.
-   - **Expected Result:** Button state updates and transmits rating to `/v1/valuations/feedback` without collecting visitor identity.
+   - **Expected Result:** Button state updates and transmits rating to `/api/v1/valuations/feedback` without collecting visitor identity.
 
 5. **Docs & Admin Portal Pages:**
    - Click **"Docs"** ([`http://localhost:4020/docs`](http://localhost:4020/docs)) to review centered-age baseline models, price aging drift formulas, and governance rules.
@@ -83,17 +82,14 @@ npm run dev
 
 ---
 
-## 3. Interactive API Documentation (Swagger / OpenAPI)
+## 3. Unified API & Proxy Endpoints (`http://localhost:4020/api/v1/*`)
 
-When the backend server is running, navigate to:  
-👉 **`http://127.0.0.1:8000/docs`**
-
-Test backend endpoints interactively:
-- **`GET /v1/system/status`**: View operational health, active model algorithm & training timestamp, and market data freshness.
-- **`GET /v1/taxonomy`**: Inspect supported Alberta pickup makes, models, and trim packages.
-- **`POST /v1/valuations`**: Execute asking-price valuation requests via JSON payload.
-- **`POST /v1/valuations/feedback`**: Submit anonymous feedback events.
-- **`POST /admin/login`**: Authenticate operator admin (`admin@carvalue.local` / `CarValueAdmin2026!`).
+All API interactions flow through the unified Next.js reverse-proxy:
+- **`GET /api/v1/system/status`**: View operational health, active model algorithm & training timestamp, and market data freshness.
+- **`GET /api/v1/taxonomy`**: Inspect supported Alberta pickup makes, models, and trim packages.
+- **`POST /api/v1/valuations`**: Execute asking-price valuation requests via JSON payload.
+- **`POST /api/v1/valuations/feedback`**: Submit anonymous feedback events.
+- **`POST /api/admin/login`**: Authenticate operator admin (`admin@carvalue.local` / `CarValueAdmin2026!`).
 
 ---
 

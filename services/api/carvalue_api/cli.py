@@ -92,7 +92,7 @@ def do_init_db(db_url: str = "sqlite:///./data/carvalue.db") -> None:
     print("database initialized:", marker["schema_hash"], f"({len(marker['tables'])} tables)")
 
 
-def do_run_server(host: str = "127.0.0.1", port: int = 8000, db_url: str | None = None) -> None:
+def do_run_server(host: str = "127.0.0.1", port: int = 8042, db_url: str | None = None) -> None:
     import uvicorn
 
     if db_url is not None:
@@ -295,7 +295,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     run_parser = subparsers.add_parser("run", help="start the FastAPI server")
     run_parser.add_argument("--host", default="127.0.0.1")
-    run_parser.add_argument("--port", type=int, default=8000)
+    run_parser.add_argument("--port", type=int, default=8042)
     run_parser.add_argument("--db-url", default=None)
     run_parser.set_defaults(func=lambda a: do_run_server(host=a.host, port=a.port, db_url=a.db_url))
 

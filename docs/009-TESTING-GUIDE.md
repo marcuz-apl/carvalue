@@ -58,7 +58,7 @@ cd apps/web
 npm run dev
 ```
 
-### Step 5: Test Visitor Journeys in Your Browser (`http://localhost:3000`)
+### Step 5: Test Visitor Journeys in Your Browser (`http://localhost:4020`)
 
 1. **Happy Path Valuation:**
    - Select **Make:** `Ford` $\rightarrow$ **Model:** `Ranger` $\rightarrow$ **Year:** `2022` $\rightarrow$ **Trim:** `XLT`.
@@ -77,9 +77,9 @@ npm run dev
    - Click 👍 (Yes) or 👎 (No) below any estimate result.
    - **Expected Result:** Button state updates and transmits rating to `/v1/valuations/feedback` without collecting visitor identity.
 
-5. **Methodology & Privacy Pages:**
-   - Click **"Methodology"** ([`http://localhost:3000/methodology`](http://localhost:3000/methodology)) to review centered-age baseline models, CatBoost quantile regressions, and governance rules.
-   - Click **"Privacy"** ([`http://localhost:3000/privacy`](http://localhost:3000/privacy)) to review zero-PII policies under Alberta PIPA and Canadian PIPEDA.
+5. **Docs & Admin Portal Pages:**
+   - Click **"Docs"** ([`http://localhost:4020/docs`](http://localhost:4020/docs)) to review centered-age baseline models, price aging drift formulas, and governance rules.
+   - Click **"Admin"** ([`http://localhost:4020/admin`](http://localhost:4020/admin)) to sign in (`admin` / `admin12345`) to manage datasets and tune ML models.
 
 ---
 

@@ -185,6 +185,7 @@ class ValuationRequest(BaseModel):
     drivetrain: str | None = Field(default=None)  # "2wd" | "4wd"
     seller_type: str | None = Field(default=None)  # "dealer" | "private"
     region: str | None = Field(default=None)  # "calgary_region" | "edmonton_region" etc.
+    dataset_filter: str | None = Field(default="all")  # "all" | "real_only" | "synthetic_only"
 
     @field_validator("make", "model")
     @classmethod
@@ -208,6 +209,9 @@ class ValuationResponse(BaseModel):
     interval_high_cad: int
     confidence_label: str  # high | medium | low | insufficient_data
     comparables_count: int
+    real_comparables_count: int = 0
+    synthetic_comparables_count: int = 0
+    dataset_provenance: str = "Real Alberta Dealer Listings (2022)"
     data_freshness_days: float
     valuation_date: date
     disclaimer: str = "This is an estimate, not a professional appraisal."
@@ -262,6 +266,13 @@ async def system_status() -> dict[str, Any]:
         listings_count = db.execute(select(func.count(Listing.id))).scalar_one()
         comps_count = db.execute(select(func.count(ListingPriceHistory.id))).scalar_one()
 
+        real_listings_count = db.execute(
+            select(func.count(Listing.id))
+            .join(Source, Source.id == Listing.source_id)
+            .where(Source.name == "ca-dealers-used-2022")
+        ).scalar() or 0
+        synthetic_listings_count = int(listings_count) - int(real_listings_count)
+
         latest_obs = db.execute(select(func.max(ListingPriceHistory.observed_at))).scalar_one()
         if latest_obs:
             freshness_days = max(float((datetime.now(UTC).date() - latest_obs.date()).days), 0.0)
@@ -284,6 +295,10 @@ async def system_status() -> dict[str, Any]:
             "data_freshness_days": freshness_days if freshness_days != float("inf") else None,
             "total_listings": int(listings_count),
             "total_price_observations": int(comps_count),
+            "sources_breakdown": {
+                "real_dealer_listings_2022": int(real_listings_count),
+                "synthetic_simulator_sample": int(synthetic_listings_count),
+            },
         }
     finally:
         db.close()
@@ -346,6 +361,9 @@ async def valuation(request: ValuationRequest, req: Request) -> ValuationRespons
                 interval_high_cad=0,
                 confidence_label=ConfidenceLabel.INSUFFICIENT_DATA,
                 comparables_count=0,
+                real_comparables_count=0,
+                synthetic_comparables_count=0,
+                dataset_provenance="Insufficient Evidence",
                 data_freshness_days=float("inf"),
                 valuation_date=val_date,
             )
@@ -360,21 +378,34 @@ async def valuation(request: ValuationRequest, req: Request) -> ValuationRespons
                 interval_high_cad=0,
                 confidence_label=ConfidenceLabel.INSUFFICIENT_DATA,
                 comparables_count=0,
+                real_comparables_count=0,
+                synthetic_comparables_count=0,
+                dataset_provenance="Model Error",
                 data_freshness_days=float("inf"),
                 valuation_date=val_date,
             )
 
         comp_query = (
-            select(ListingPriceHistory)
+            select(ListingPriceHistory, Source.name.label("source_name"))
             .join(Listing, Listing.id == ListingPriceHistory.listing_id)
+            .join(Source, Source.id == Listing.source_id)
             .where(
                 Listing.make == make_canonical,
                 Listing.model == model_canonical,
                 Listing.is_active.is_(True),
             )
         )
-        all_comps = db.execute(comp_query).scalars().all()
-        comps = [c for c in all_comps if c.observed_at.date() <= val_date]
+        if request.dataset_filter == "real_only":
+            comp_query = comp_query.where(Source.name == "ca-dealers-used-2022")
+        elif request.dataset_filter == "synthetic_only":
+            comp_query = comp_query.where(Source.name != "ca-dealers-used-2022")
+
+        all_comp_rows = db.execute(comp_query).all()
+        comps = [r[0] for r in all_comp_rows if r[0].observed_at.date() <= val_date]
+        real_comps_count = sum(
+            1 for r in all_comp_rows if r[1] == "ca-dealers-used-2022" and r[0].observed_at.date() <= val_date
+        )
+        synthetic_comps_count = len(comps) - real_comps_count
         comparables_count = len(comps)
 
         if comps:
@@ -424,17 +455,33 @@ async def valuation(request: ValuationRequest, req: Request) -> ValuationRespons
             latency_ms=latency_ms,
         )
 
+        if request.dataset_filter == "real_only":
+            provenance = "Real Alberta Dealer Listings (2022 Dataset)"
+        elif request.dataset_filter == "synthetic_only":
+            provenance = "Simulated Benchmark Sample"
+        else:
+            if real_comps_count > 0 and synthetic_comps_count > 0:
+                provenance = f"Combined Evidence ({real_comps_count} Real, {synthetic_comps_count} Simulated)"
+            elif real_comps_count > 0:
+                provenance = "Real Alberta Dealer Listings (2022 Dataset)"
+            else:
+                provenance = "Simulated Benchmark Sample"
+
         return ValuationResponse(
             estimate_cad=est_cad,
             interval_low_cad=low_cad,
             interval_high_cad=high_cad,
             confidence_label=decision.label,
             comparables_count=comparables_count,
+            real_comparables_count=real_comps_count,
+            synthetic_comparables_count=synthetic_comps_count,
+            dataset_provenance=provenance,
             data_freshness_days=round(data_freshness_days, 1),
             valuation_date=val_date,
         )
     finally:
         db.close()
+
 
 
 def _log_valuation_event(

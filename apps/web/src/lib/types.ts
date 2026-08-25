@@ -10,6 +10,7 @@ export interface ValuationRequest {
   trim?: string;
   drivetrain?: "2wd" | "4wd";
   seller_type?: "dealer" | "private";
+  dataset_filter?: "all" | "real_only" | "synthetic_only";
 }
 
 export type ConfidenceLevel = "high" | "medium" | "low" | "insufficient_data";
@@ -20,10 +21,14 @@ export interface ValuationResponse {
   interval_high_cad: number;
   confidence_label: ConfidenceLevel;
   comparables_count: number;
+  real_comparables_count?: number;
+  synthetic_comparables_count?: number;
+  dataset_provenance?: string;
   data_freshness_days: number;
   valuation_date: string;
   disclaimer: string;
 }
+
 
 export interface TaxonomyResponse {
   makes: string[];

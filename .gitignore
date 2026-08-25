@@ -30,10 +30,10 @@ coverage/
 *.db-wal
 *.sqlite
 *.sqlite3
-data/
 models/
 raw-crawls/
 artifacts/
+data-extra/
 
 # Logs and temporary files
 *.log

@@ -141,6 +141,147 @@ def db_path_from_url(db_url: str) -> str:
     return db_url[len(prefix) :] if db_url.startswith(prefix) else "carvalue.db"
 
 
+def do_import_data(
+    file_path: str,
+    make: str,
+    model: str,
+    db_url: str = "sqlite:///./carvalue.db",
+) -> None:
+    """Import a CSV/XLSX file into the database via preview+commit pipeline."""
+    from datetime import UTC, datetime
+
+    from carvalue_core.imports.spreadsheet import ImportContext, commit_preview, preview_import
+    from carvalue_core.persistence import Source, new_session_factory
+
+    engine = api.persistence.make_engine(db_url)
+    SessionLocal = new_session_factory(engine)
+
+    with SessionLocal() as session:
+        # Find or create a manual-import source
+        source = session.execute(
+            select(Source).where(Source.name == "manual_csv_import")
+        ).scalar_one_or_none()
+        if not source:
+            source = Source(
+                name="manual_csv_import",
+                source_type="manual_import",
+                permission_status="approved",
+                adapter_name="csv_import",
+                enabled=True,
+                owner_notes="Manual CSV/XLSX import via CLI",
+            )
+            session.add(source)
+            session.flush()
+
+        ctx = ImportContext(
+            source_id=int(source.id),
+            default_make=make.lower().strip(),
+            default_model=model.lower().strip(),
+            observed_at_fallback=datetime.now(UTC),
+        )
+
+        preview = preview_import(file_path, ctx)
+        print(f"Preview: {preview.total_rows} rows, "
+              f"{len(preview.accepted_observations)} accepted, "
+              f"{len(preview.rejected_rows)} rejected")
+
+        if preview.column_errors:
+            for code, msg in preview.column_errors:
+                print(f"  COLUMN ERROR: [{code.value}] {msg}")
+            engine.dispose()
+            return
+
+        for rej in preview.rejected_rows:
+            print(f"  Row {rej.row_number} rejected: [{rej.code.value}] {rej.message}")
+
+        if not preview.accepted_observations:
+            print("No rows accepted — nothing to import.")
+            engine.dispose()
+            return
+
+        summary = commit_preview(session, preview)
+        session.commit()
+        print(f"Committed: {summary.accepted} new, {summary.updated} updated, "
+              f"{summary.duplicate} duplicate")
+
+    engine.dispose()
+
+
+def do_train_model(
+    db_url: str = "sqlite:///./carvalue.db",
+    artifact_dir: str = "models",
+) -> None:
+    """Train OLSBaseline on all listing data and register as the active model."""
+    from datetime import UTC, datetime
+
+    import pandas as pd
+
+    from carvalue_core.models import OLSBaseline
+    from carvalue_core.persistence import (
+        Listing,
+        ListingPriceHistory,
+        ModelVersion,
+        new_session_factory,
+    )
+
+    engine = api.persistence.make_engine(db_url)
+    SessionLocal = new_session_factory(engine)
+
+    with SessionLocal() as session:
+        # Query all active listing price observations
+        rows = session.execute(
+            select(
+                Listing.model_year,
+                Listing.mileage_km,
+                ListingPriceHistory.asking_price_cad_cents,
+                ListingPriceHistory.observed_at,
+            )
+            .join(Listing, Listing.id == ListingPriceHistory.listing_id)
+            .where(Listing.is_active.is_(True))
+        ).all()
+
+        if len(rows) < 4:
+            print(f"Only {len(rows)} observations — need at least 4 to train. Import data first.")
+            engine.dispose()
+            return
+
+        df = pd.DataFrame(rows, columns=["model_year", "mileage_km", "price_cad_cents", "observed_at"])
+        df["price_cad"] = df["price_cad_cents"] / 100.0
+        print(f"Training OLSBaseline on {len(df)} observations "
+              f"(years {df['model_year'].min()}–{df['model_year'].max()})")
+
+        model = OLSBaseline()
+        model.fit(df)
+
+        # Save artifact
+        artifact_path = Path(artifact_dir) / f"ols_baseline_{datetime.now(UTC).strftime('%Y%m%d%H%M')}.joblib"
+        model_hash = model.save(str(artifact_path))
+        print(f"Model saved: {artifact_path} (SHA256: {model_hash[:16]}...)")
+
+        # Deactivate any existing active models
+        active_models = session.execute(
+            select(ModelVersion).where(ModelVersion.status == "active")
+        ).scalars().all()
+        for m in active_models:
+            m.status = "retired"
+
+        # Register this model as active
+        mv = ModelVersion(
+            algorithm="ols_baseline",
+            status="active",
+            artifact_path=str(artifact_path),
+            feature_schema_json=model.feature_schema,
+            metrics_json={"training_samples": len(df), "note": "CLI train-model"},
+            trained_at_utc=datetime.now(UTC),
+            model_hash_sha256=model_hash,
+        )
+        session.add(mv)
+        session.commit()
+        print(f"Model registered as ACTIVE (ModelVersion id={mv.id})")
+
+    engine.dispose()
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="carvalue", description="CarValue modular monolith CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -157,6 +298,22 @@ def main(argv: Sequence[str] | None = None) -> None:
     run_parser.add_argument("--port", type=int, default=8000)
     run_parser.add_argument("--db-url", default=None)
     run_parser.set_defaults(func=lambda a: do_run_server(host=a.host, port=a.port, db_url=a.db_url))
+
+    import_parser = subparsers.add_parser("import-data", help="import CSV/XLSX listing data")
+    import_parser.add_argument("--file", required=True, help="Path to CSV or XLSX file")
+    import_parser.add_argument("--make", required=True, help="Default make (e.g. ford)")
+    import_parser.add_argument("--model", required=True, help="Default model (e.g. f-150)")
+    import_parser.add_argument("--db-url", default="sqlite:///./carvalue.db")
+    import_parser.set_defaults(
+        func=lambda a: do_import_data(file_path=a.file, make=a.make, model=a.model, db_url=a.db_url)
+    )
+
+    train_parser = subparsers.add_parser("train-model", help="train OLS baseline and activate")
+    train_parser.add_argument("--db-url", default="sqlite:///./carvalue.db")
+    train_parser.add_argument("--artifact-dir", default="models", help="Directory for model artifacts")
+    train_parser.set_defaults(
+        func=lambda a: do_train_model(db_url=a.db_url, artifact_dir=a.artifact_dir)
+    )
 
     backup_parser = subparsers.add_parser("backup-db", help="create point-in-time SQLite snapshot")
     backup_parser.add_argument("--db-url", default="sqlite:///./carvalue.db")
@@ -182,3 +339,4 @@ def main(argv: Sequence[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
+

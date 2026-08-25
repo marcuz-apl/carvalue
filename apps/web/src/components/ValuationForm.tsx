@@ -27,6 +27,9 @@ export default function ValuationForm({
   const [sellerType, setSellerType] = useState<"dealer" | "private">(
     initialValues?.seller_type || "dealer"
   );
+  const [datasetFilter, setDatasetFilter] = useState<"real_only" | "all" | "synthetic_only">(
+    initialValues?.dataset_filter || "real_only"
+  );
 
   useEffect(() => {
     fetchTaxonomy().then(setTaxonomy).catch(console.error);
@@ -59,8 +62,10 @@ export default function ValuationForm({
       trim,
       drivetrain,
       seller_type: sellerType,
+      dataset_filter: datasetFilter,
     });
   };
+
 
   const years = Array.from({ length: 16 }, (_, i) => 2025 - i);
 
@@ -247,6 +252,50 @@ export default function ValuationForm({
           </div>
         </div>
       </div>
+
+      {/* Dataset Provenance Filter */}
+      <div className="form-group" style={{ marginTop: "0.25rem", marginBottom: "1rem" }}>
+        <label className="form-label" style={{ display: "flex", justifyContent: "space-between" }}>
+          <span>Data Evidence Scope</span>
+          <span style={{ fontSize: "0.75rem", color: "var(--accent-primary)", fontWeight: 500 }}>
+            {datasetFilter === "real_only"
+              ? "🟢 Real 2022 Canadian Dealer Dataset"
+              : datasetFilter === "all"
+              ? "📊 Combined (Real + Simulator Demo)"
+              : "🧪 Simulated Benchmark Only"}
+          </span>
+        </label>
+        <div className="radio-group" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem" }}>
+          <button
+            type="button"
+            id="btn-dataset-real"
+            className={`radio-btn ${datasetFilter === "real_only" ? "active" : ""}`}
+            style={{ fontSize: "0.8rem", padding: "0.45rem 0.25rem", textAlign: "center" }}
+            onClick={() => setDatasetFilter("real_only")}
+          >
+            🟢 Real Dealer (2022)
+          </button>
+          <button
+            type="button"
+            id="btn-dataset-all"
+            className={`radio-btn ${datasetFilter === "all" ? "active" : ""}`}
+            style={{ fontSize: "0.8rem", padding: "0.45rem 0.25rem", textAlign: "center" }}
+            onClick={() => setDatasetFilter("all")}
+          >
+            📊 All Sources
+          </button>
+          <button
+            type="button"
+            id="btn-dataset-synthetic"
+            className={`radio-btn ${datasetFilter === "synthetic_only" ? "active" : ""}`}
+            style={{ fontSize: "0.8rem", padding: "0.45rem 0.25rem", textAlign: "center" }}
+            onClick={() => setDatasetFilter("synthetic_only")}
+          >
+            🧪 Simulated Only
+          </button>
+        </div>
+      </div>
+
 
       <button
         type="submit"

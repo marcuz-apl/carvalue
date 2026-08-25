@@ -36,19 +36,29 @@ To test the entire web application and backend interactively in your browser:
 ./bin/carvalue init-db --db-url "sqlite:///./carvalue.db"
 ```
 
-### Step 2: Start the FastAPI Backend Server
+### Step 2: Import Alberta Market Listing Data & Train Model
+```bash
+# Import demo listings for Ford F-150 and Ford Ranger
+./bin/carvalue import-data --file data/demo-ford-f150.csv --make ford --model f-150 --db-url "sqlite:///./carvalue.db"
+./bin/carvalue import-data --file data/demo-ford-ranger.csv --make ford --model ranger --db-url "sqlite:///./carvalue.db"
+
+# Train OLSBaseline valuation model and register as ACTIVE
+./bin/carvalue train-model --db-url "sqlite:///./carvalue.db" --artifact-dir models
+```
+
+### Step 3: Start the FastAPI Backend Server
 ```bash
 ./bin/carvalue run --host 127.0.0.1 --port 8000 --db-url "sqlite:///./carvalue.db"
 ```
 
-### Step 3: Start the Next.js Frontend Development Server
+### Step 4: Start the Next.js Frontend Development Server
 In a second terminal:
 ```bash
 cd apps/web
 npm run dev
 ```
 
-### Step 4: Test Visitor Journeys in Your Browser (`http://localhost:3000`)
+### Step 5: Test Visitor Journeys in Your Browser (`http://localhost:3000`)
 
 1. **Happy Path Valuation:**
    - Select **Make:** `Ford` $\rightarrow$ **Model:** `Ranger` $\rightarrow$ **Year:** `2022` $\rightarrow$ **Trim:** `XLT`.

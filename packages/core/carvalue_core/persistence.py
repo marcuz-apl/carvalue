@@ -611,6 +611,14 @@ def upsert_listing_observation(
         )
         session.add(listing)
         session.flush()  # assigns listing.id
+        session.add(
+            ListingPriceHistory(
+                listing_id=listing.id,
+                observed_at=observed_at,
+                asking_price_cad_cents=obs.asking_price_cad_cents,
+                raw_observation_id=raw.id,
+            )
+        )
         history_appended = True
         if clash is not None:
             session.add(

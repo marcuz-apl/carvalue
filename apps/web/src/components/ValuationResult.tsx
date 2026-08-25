@@ -40,8 +40,17 @@ export default function ValuationResult({
             }}
           >
             <div>
-              <span className="pill badge-high" style={{ marginBottom: "0.5rem" }}>
-                Alberta Market Estimate
+              <span
+                className={`pill ${
+                  result.dataset_provenance?.includes("Real")
+                    ? "badge-high"
+                    : result.dataset_provenance?.includes("Combined")
+                    ? "badge-medium"
+                    : "badge-low"
+                }`}
+                style={{ marginBottom: "0.5rem", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+              >
+                {result.dataset_provenance || "Alberta Market Estimate"}
               </span>
               <h2
                 className="result-vehicle-name"
@@ -98,8 +107,20 @@ export default function ValuationResult({
               <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
               <path d="M16 3.13a4 4 0 0 1 0 7.75" />
             </svg>
-            {result.comparables_count} Alberta Comparables
+            {result.comparables_count} Total Alberta Comps
           </span>
+
+          {result.real_comparables_count !== undefined && result.real_comparables_count > 0 && (
+            <span className="pill" style={{ color: "#34d399", borderColor: "rgba(52, 211, 153, 0.4)" }}>
+              🟢 {result.real_comparables_count.toLocaleString()} Real Dealer Comps
+            </span>
+          )}
+
+          {result.synthetic_comparables_count !== undefined && result.synthetic_comparables_count > 0 && (
+            <span className="pill" style={{ color: "#c084fc", borderColor: "rgba(192, 132, 252, 0.4)" }}>
+              🧪 {result.synthetic_comparables_count.toLocaleString()} Simulated Comps
+            </span>
+          )}
 
           <span className="pill" id="pill-data-freshness">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -108,6 +129,7 @@ export default function ValuationResult({
             </svg>
             {result.data_freshness_days <= 1
               ? "Updated Today"
+
               : `Updated ${result.data_freshness_days} days ago`}
           </span>
 

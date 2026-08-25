@@ -17,7 +17,9 @@ export function getAppVersion(): string {
       if (fs.existsSync(p)) {
         const raw = fs.readFileSync(p, "utf-8").trim();
         if (raw) {
-          return raw.startsWith("v") ? raw : `v${raw}`;
+          // Extract only the semantic version part (m.n.p), removing build suffix (-yymmddc)
+          const baseVersion = raw.split("-")[0].trim();
+          return baseVersion.startsWith("v") ? baseVersion : `v${baseVersion}`;
         }
       }
     } catch {
@@ -25,5 +27,5 @@ export function getAppVersion(): string {
     }
   }
 
-  return "v1.2.7";
+  return "v1.2.8";
 }

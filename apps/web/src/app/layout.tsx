@@ -4,6 +4,7 @@ import "./globals.css";
 import DisclaimerModal from "../components/DisclaimerModal";
 import PrivacyModal from "../components/PrivacyModal";
 import SiteFooter from "../components/SiteFooter";
+import { getAppVersion } from "../lib/version";
 
 export const metadata: Metadata = {
   title: "CarValue Alberta | Explainable Used Pickup Asking-Price Valuator",
@@ -22,24 +23,15 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const appVersion = getAppVersion();
+
   return (
     <html lang="en">
       <body className="min-h-full flex flex-col">
         <div className="app-container">
-          {/* Main Top Header: Edge-to-Edge with Left Docs, Center Brand, Right Admin */}
-          <header className="site-header" style={{ width: "100%" }}>
-            <nav
-              className="nav-container"
-              aria-label="Main Navigation"
-              style={{
-                width: "100%",
-                maxWidth: "100%",
-                padding: "0.85rem 1.5rem",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
+          {/* Main Top Header: Aligned with Main Workspace and Footer (max-width: 1200px) */}
+          <header className="site-header">
+            <nav className="nav-container" aria-label="Main Navigation">
               {/* Left Column: Docs Link */}
               <div style={{ flex: "1 1 0%", display: "flex", justifyContent: "flex-start", alignItems: "center" }}>
                 <Link
@@ -107,7 +99,7 @@ export default function RootLayout({
                     </span>
                   </div>
                   <span className="brand-badge" style={{ marginLeft: "0.2rem" }}>
-                    v1.2.5
+                    {appVersion}
                   </span>
                 </Link>
               </div>

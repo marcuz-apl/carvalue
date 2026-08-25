@@ -30,6 +30,7 @@ coverage/
 *.db-wal
 *.sqlite
 *.sqlite3
+!data/carvalue.db
 models/
 raw-crawls/
 artifacts/

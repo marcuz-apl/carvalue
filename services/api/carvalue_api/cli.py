@@ -77,7 +77,7 @@ def _seed_db(session: Any, *, db_path: str | Path) -> None:
         )
 
 
-def do_init_db(db_url: str = "sqlite:///./carvalue.db") -> None:
+def do_init_db(db_url: str = "sqlite:///./data/carvalue.db") -> None:
     """Create tables (if missing), seed taxonomy + admin, record schema hash."""
     Path(db_path_from_url(db_url)).touch(exist_ok=True)
     from carvalue_api.migrations import run_migrations
@@ -145,7 +145,7 @@ def do_import_data(
     file_path: str,
     make: str,
     model: str,
-    db_url: str = "sqlite:///./carvalue.db",
+    db_url: str = "sqlite:///./data/carvalue.db",
 ) -> None:
     """Import a CSV/XLSX file into the database via preview+commit pipeline."""
     from datetime import UTC, datetime
@@ -208,7 +208,7 @@ def do_import_data(
 
 
 def do_train_model(
-    db_url: str = "sqlite:///./carvalue.db",
+    db_url: str = "sqlite:///./data/carvalue.db",
     artifact_dir: str = "models",
 ) -> None:
     """Train OLSBaseline on all listing data and register as the active model."""
@@ -290,7 +290,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "init-db",
         help="initialize SQLite with migrations + seed data",
     )
-    init_parser.add_argument("--db-url", default="sqlite:///./carvalue.db")
+    init_parser.add_argument("--db-url", default="sqlite:///./data/carvalue.db")
     init_parser.set_defaults(func=lambda a: do_init_db(db_url=a.db_url))
 
     run_parser = subparsers.add_parser("run", help="start the FastAPI server")
@@ -303,30 +303,30 @@ def main(argv: Sequence[str] | None = None) -> None:
     import_parser.add_argument("--file", required=True, help="Path to CSV or XLSX file")
     import_parser.add_argument("--make", required=True, help="Default make (e.g. ford)")
     import_parser.add_argument("--model", required=True, help="Default model (e.g. f-150)")
-    import_parser.add_argument("--db-url", default="sqlite:///./carvalue.db")
+    import_parser.add_argument("--db-url", default="sqlite:///./data/carvalue.db")
     import_parser.set_defaults(
         func=lambda a: do_import_data(file_path=a.file, make=a.make, model=a.model, db_url=a.db_url)
     )
 
     train_parser = subparsers.add_parser("train-model", help="train OLS baseline and activate")
-    train_parser.add_argument("--db-url", default="sqlite:///./carvalue.db")
+    train_parser.add_argument("--db-url", default="sqlite:///./data/carvalue.db")
     train_parser.add_argument("--artifact-dir", default="models", help="Directory for model artifacts")
     train_parser.set_defaults(
         func=lambda a: do_train_model(db_url=a.db_url, artifact_dir=a.artifact_dir)
     )
 
     backup_parser = subparsers.add_parser("backup-db", help="create point-in-time SQLite snapshot")
-    backup_parser.add_argument("--db-url", default="sqlite:///./carvalue.db")
+    backup_parser.add_argument("--db-url", default="sqlite:///./data/carvalue.db")
     backup_parser.add_argument("--dest", required=True, help="Destination backup file path")
     backup_parser.set_defaults(func=lambda a: do_backup_db(db_url=a.db_url, dest_path=a.dest))
 
     restore_parser = subparsers.add_parser("restore-db", help="restore SQLite from backup snapshot")
     restore_parser.add_argument("--src", required=True, help="Source backup file path")
-    restore_parser.add_argument("--db-url", default="sqlite:///./carvalue.db")
+    restore_parser.add_argument("--db-url", default="sqlite:///./data/carvalue.db")
     restore_parser.set_defaults(func=lambda a: do_restore_db(backup_path=a.src, db_url=a.db_url))
 
     purge_parser = subparsers.add_parser("purge-retention", help="purge raw content & expired sessions")
-    purge_parser.add_argument("--db-url", default="sqlite:///./carvalue.db")
+    purge_parser.add_argument("--db-url", default="sqlite:///./data/carvalue.db")
     purge_parser.add_argument("--raw-days", type=int, default=90)
     purge_parser.add_argument("--session-days", type=int, default=30)
     purge_parser.set_defaults(

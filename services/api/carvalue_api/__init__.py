@@ -85,7 +85,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.state.db_url = "sqlite:///./carvalue.db"  # default; overwritten by cli/tests
+app.state.db_url = "sqlite:///./data/carvalue.db"  # default; overwritten by cli/tests
 
 
 @app.middleware("http")

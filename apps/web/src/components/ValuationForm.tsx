@@ -33,18 +33,84 @@ export default function ValuationForm({
   );
 
   useEffect(() => {
-    fetchTaxonomy().then(setTaxonomy).catch(console.error);
+    fetchTaxonomy().then((data) => {
+      setTaxonomy(data);
+    }).catch(console.error);
   }, []);
 
   // Compute available makes for current category
   const availableMakes = React.useMemo(() => {
-    if (!taxonomy) return ["Ford", "RAM", "Chevrolet", "GMC", "Toyota", "Nissan", "Honda", "Jeep", "Hyundai"];
+    if (!taxonomy) {
+      if (category === "coupe") return ["Ford", "Chevrolet", "Dodge", "BMW", "Audi", "Nissan", "Toyota", "Subaru"];
+      if (category === "suv") return ["Ford", "Toyota", "Jeep", "Chevrolet", "Honda", "Hyundai", "Nissan", "GMC"];
+      if (category === "sedan") return ["Honda", "Toyota", "Hyundai", "Nissan", "Chevrolet", "Volkswagen", "BMW"];
+      if (category === "van") return ["Dodge", "Chrysler", "Honda", "Toyota", "Ford"];
+      if (category === "hatchback") return ["Volkswagen", "Mazda", "Hyundai", "Kia", "Honda"];
+      return ["Ford", "RAM", "Chevrolet", "GMC", "Toyota", "Nissan"];
+    }
     if (category === "all" || !taxonomy.models_by_category || !taxonomy.models_by_category[category]) {
       return taxonomy.makes && taxonomy.makes.length > 0 ? taxonomy.makes : Object.keys(taxonomy.models_by_make);
     }
     const catMakes = Object.keys(taxonomy.models_by_category[category] || {});
     return catMakes.length > 0 ? catMakes.sort() : taxonomy.makes;
   }, [taxonomy, category]);
+
+  // Compute available models for current make and category
+  const availableModels = React.useMemo(() => {
+    if (!taxonomy) {
+      if (category === "coupe") {
+        if (make === "Ford") return ["Mustang"];
+        if (make === "Chevrolet") return ["Camaro", "Corvette"];
+        if (make === "Dodge") return ["Challenger"];
+        if (make === "BMW") return ["4 Series", "2 Series", "M4"];
+        return ["Mustang", "Camaro", "Challenger"];
+      }
+      return ["F-150", "Ranger", "1500", "Silverado 1500", "RAV4", "Civic"];
+    }
+    if (category !== "all" && taxonomy.models_by_category && taxonomy.models_by_category[category] && taxonomy.models_by_category[category][make]) {
+      return taxonomy.models_by_category[category][make].sort();
+    }
+    return (taxonomy.models_by_make[make] || []).sort();
+  }, [taxonomy, category, make]);
+
+  // Handler for category change with immediate cascading make and model selection
+  const handleCategoryChange = (newCat: string) => {
+    setCategory(newCat);
+    if (!taxonomy) return;
+    let nextMakes: string[] = [];
+    if (newCat === "all" || !taxonomy.models_by_category || !taxonomy.models_by_category[newCat]) {
+      nextMakes = taxonomy.makes && taxonomy.makes.length > 0 ? taxonomy.makes : Object.keys(taxonomy.models_by_make);
+    } else {
+      nextMakes = Object.keys(taxonomy.models_by_category[newCat] || {}).sort();
+    }
+
+    if (nextMakes.length > 0) {
+      const nextMake = nextMakes.includes(make) ? make : nextMakes[0];
+      setMake(nextMake);
+
+      const nextModels = (newCat !== "all" && taxonomy.models_by_category?.[newCat]?.[nextMake])
+        ? taxonomy.models_by_category[newCat][nextMake].sort()
+        : (taxonomy.models_by_make[nextMake] || []).sort();
+
+      if (nextModels.length > 0) {
+        const nextModel = nextModels.includes(model) ? model : nextModels[0];
+        setModel(nextModel);
+      }
+    }
+  };
+
+  // Handler for make change
+  const handleMakeChange = (newMake: string) => {
+    setMake(newMake);
+    if (!taxonomy) return;
+    const nextModels = (category !== "all" && taxonomy.models_by_category?.[category]?.[newMake])
+      ? taxonomy.models_by_category[category][newMake].sort()
+      : (taxonomy.models_by_make[newMake] || []).sort();
+
+    if (nextModels.length > 0) {
+      setModel(nextModels[0]);
+    }
+  };
 
   // Update make if current make is not available in selected category
   useEffect(() => {
@@ -53,16 +119,7 @@ export default function ValuationForm({
     }
   }, [availableMakes, make]);
 
-  // Compute available models for current make and category
-  const availableModels = React.useMemo(() => {
-    if (!taxonomy) return ["F-150", "Ranger", "1500", "Silverado 1500", "RAV4", "Civic"];
-    if (category !== "all" && taxonomy.models_by_category && taxonomy.models_by_category[category] && taxonomy.models_by_category[category][make]) {
-      return taxonomy.models_by_category[category][make].sort();
-    }
-    return (taxonomy.models_by_make[make] || []).sort();
-  }, [taxonomy, category, make]);
-
-  // Update model when make or category changes
+  // Update model when available models change
   useEffect(() => {
     if (availableModels.length > 0 && !availableModels.includes(model)) {
       setModel(availableModels[0]);
@@ -71,7 +128,7 @@ export default function ValuationForm({
 
   // Update trims when make/model changes
   const trimKey = `${make}:${model}`;
-  const availableTrims = taxonomy?.trims_by_model[trimKey] || ["Base", "LT", "XLT", "Lariat", "Limited", "Sport"];
+  const availableTrims = taxonomy?.trims_by_model[trimKey] || ["Base", "LT", "XLT", "Lariat", "GT", "Premium", "Sport", "Limited"];
   useEffect(() => {
     if (availableTrims.length > 0 && !availableTrims.includes(trim)) {
       setTrim(availableTrims[0]);
@@ -121,76 +178,41 @@ export default function ValuationForm({
         Vehicle Specifications
       </h2>
 
-      {/* Vehicle Category Switcher */}
-      <div className="form-group" style={{ marginBottom: "1.25rem" }}>
-        <label className="form-label" style={{ display: "flex", justifyContent: "space-between" }}>
+      {/* Selectable Vehicle Category Drop-Down Menu */}
+      <div className="form-group" style={{ marginBottom: "1rem" }}>
+        <label className="form-label" htmlFor="select-category" style={{ display: "flex", justifyContent: "space-between" }}>
           <span>Vehicle Category</span>
           <span style={{ fontSize: "0.75rem", color: "var(--accent-primary)", fontWeight: 600 }}>
             {category === "pickup"
-              ? "🛻 Pickup Trucks (7,642 listings)"
+              ? "🛻 7,642 Alberta Pickups"
               : category === "suv"
-              ? "🚙 SUVs & Crossovers (21,890 listings)"
+              ? "🚙 21,890 Alberta SUVs"
               : category === "sedan"
-              ? "🚗 Sedans (7,631 listings)"
+              ? "🚗 7,631 Alberta Sedans"
               : category === "hatchback"
-              ? "🚘 Hatchbacks (3,177 listings)"
+              ? "🚘 3,177 Alberta Hatchbacks"
               : category === "van"
-              ? "🚐 Vans & Minivans (2,006 listings)"
+              ? "🚐 2,006 Alberta Vans"
               : category === "coupe"
-              ? "🏎️ Coupes & Sport (1,243 listings)"
-              : "⚡ All Vehicle Types (44,412 listings)"}
+              ? "🏎️ 1,243 Alberta Coupes"
+              : "⚡ 44,412 Alberta Vehicles"}
           </span>
         </label>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.4rem" }}>
-          <button
-            type="button"
-            className={`radio-btn ${category === "pickup" ? "active" : ""}`}
-            style={{ fontSize: "0.75rem", padding: "0.45rem 0.2rem", textAlign: "center" }}
-            onClick={() => setCategory("pickup")}
-          >
-            🛻 Pickup
-          </button>
-          <button
-            type="button"
-            className={`radio-btn ${category === "suv" ? "active" : ""}`}
-            style={{ fontSize: "0.75rem", padding: "0.45rem 0.2rem", textAlign: "center" }}
-            onClick={() => setCategory("suv")}
-          >
-            🚙 SUV
-          </button>
-          <button
-            type="button"
-            className={`radio-btn ${category === "sedan" ? "active" : ""}`}
-            style={{ fontSize: "0.75rem", padding: "0.45rem 0.2rem", textAlign: "center" }}
-            onClick={() => setCategory("sedan")}
-          >
-            🚗 Sedan
-          </button>
-          <button
-            type="button"
-            className={`radio-btn ${category === "hatchback" ? "active" : ""}`}
-            style={{ fontSize: "0.75rem", padding: "0.45rem 0.2rem", textAlign: "center" }}
-            onClick={() => setCategory("hatchback")}
-          >
-            🚘 Hatchback
-          </button>
-          <button
-            type="button"
-            className={`radio-btn ${category === "van" ? "active" : ""}`}
-            style={{ fontSize: "0.75rem", padding: "0.45rem 0.2rem", textAlign: "center" }}
-            onClick={() => setCategory("van")}
-          >
-            🚐 Van / Minivan
-          </button>
-          <button
-            type="button"
-            className={`radio-btn ${category === "coupe" ? "active" : ""}`}
-            style={{ fontSize: "0.75rem", padding: "0.45rem 0.2rem", textAlign: "center" }}
-            onClick={() => setCategory("coupe")}
-          >
-            🏎️ Coupe
-          </button>
-        </div>
+        <select
+          id="select-category"
+          className="form-control"
+          value={category}
+          onChange={(e) => handleCategoryChange(e.target.value)}
+          style={{ fontWeight: 600 }}
+        >
+          <option value="pickup">🛻 Pickup Trucks (7,642 listings)</option>
+          <option value="suv">🚙 SUVs & Crossovers (21,890 listings)</option>
+          <option value="sedan">🚗 Sedans (7,631 listings)</option>
+          <option value="coupe">🏎️ Coupes & Sports Cars (1,243 listings)</option>
+          <option value="van">🚐 Vans & Minivans (2,006 listings)</option>
+          <option value="hatchback">🚘 Hatchbacks (3,177 listings)</option>
+          <option value="all">⚡ All Vehicle Categories (44,412 listings)</option>
+        </select>
       </div>
 
       {/* Make & Model Row */}
@@ -203,7 +225,7 @@ export default function ValuationForm({
             id="select-make"
             className="form-control"
             value={make}
-            onChange={(e) => setMake(e.target.value)}
+            onChange={(e) => handleMakeChange(e.target.value)}
           >
             {availableMakes.map((m) => (
               <option key={m} value={m}>
@@ -399,7 +421,7 @@ export default function ValuationForm({
               stroke="currentColor"
               strokeWidth="2"
             >
-              <circle cx="12" cy="10" strokeOpacity="0.25" />
+              <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
               <path d="M12 2a10 10 0 0 1 10 10" />
             </svg>
             Calculating Alberta Market Estimate...

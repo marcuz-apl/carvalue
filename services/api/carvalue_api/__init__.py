@@ -592,7 +592,8 @@ async def taxonomy() -> TaxonomyResponse:
                 if parent:
                     make_name = parent.canonical_name
                     models_by_make.setdefault(make_name, []).append(n.canonical_name)
-                    cat = n.aliases_json[1] if (n.aliases_json and len(n.aliases_json) > 1) else "other"
+                    raw_cat = n.aliases_json[1] if (n.aliases_json and len(n.aliases_json) > 1) else "other"
+                    cat = str(raw_cat or "other").strip().lower()
                     models_by_category.setdefault(cat, {}).setdefault(make_name, []).append(n.canonical_name)
             elif n.level == "trim" and n.parent_id:
                 model_parent = db.get(VehicleTaxonomy, n.parent_id)

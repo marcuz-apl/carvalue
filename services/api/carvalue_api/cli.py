@@ -210,13 +210,14 @@ def do_import_data(
 def do_train_model(
     db_url: str = "sqlite:///./data/carvalue.db",
     artifact_dir: str = "models",
+    algorithm: str = "catboost",
 ) -> None:
-    """Train OLSBaseline on all listing data and register as the active model."""
+    """Train CatBoostCandidate or OLSBaseline on all listing data and register as active."""
     from datetime import UTC, datetime
 
     import pandas as pd
 
-    from carvalue_core.models import OLSBaseline
+    from carvalue_core.models import CatBoostCandidate, OLSBaseline
     from carvalue_core.persistence import (
         Listing,
         ListingPriceHistory,
@@ -228,11 +229,16 @@ def do_train_model(
     SessionLocal = new_session_factory(engine)
 
     with SessionLocal() as session:
-        # Query all active listing price observations
+        # Query all active listing price observations with vehicle specs and observation date
         rows = session.execute(
             select(
+                Listing.make,
+                Listing.model,
                 Listing.model_year,
                 Listing.mileage_km,
+                Listing.trim,
+                Listing.drivetrain,
+                Listing.seller_type,
                 ListingPriceHistory.asking_price_cad_cents,
                 ListingPriceHistory.observed_at,
             )
@@ -245,16 +251,43 @@ def do_train_model(
             engine.dispose()
             return
 
-        df = pd.DataFrame(rows, columns=["model_year", "mileage_km", "price_cad_cents", "observed_at"])
+        df = pd.DataFrame(
+            rows,
+            columns=[
+                "make",
+                "model",
+                "model_year",
+                "mileage_km",
+                "trim",
+                "drivetrain",
+                "seller_type",
+                "price_cad_cents",
+                "observed_at",
+            ],
+        )
         df["price_cad"] = df["price_cad_cents"] / 100.0
-        print(f"Training OLSBaseline on {len(df)} observations "
-              f"(years {df['model_year'].min()}–{df['model_year'].max()})")
 
-        model = OLSBaseline()
-        model.fit(df)
+        if algorithm.lower() in ("catboost", "catboost_candidate"):
+            print(
+                f"Training CatBoostCandidate on {len(df)} observations "
+                f"(years {df['model_year'].min()}–{df['model_year'].max()}) with observation-anchored age"
+            )
+            model = CatBoostCandidate()
+            model.fit(df)
+            algo_name = "catboost_candidate"
+            artifact_name = f"catboost_{datetime.now(UTC).strftime('%Y%m%d%H%M')}.joblib"
+        else:
+            print(
+                f"Training OLSBaseline on {len(df)} observations "
+                f"(years {df['model_year'].min()}–{df['model_year'].max()}) with observation-anchored age"
+            )
+            model = OLSBaseline()
+            model.fit(df)
+            algo_name = "ols_baseline"
+            artifact_name = f"ols_baseline_{datetime.now(UTC).strftime('%Y%m%d%H%M')}.joblib"
 
         # Save artifact
-        artifact_path = Path(artifact_dir) / f"ols_baseline_{datetime.now(UTC).strftime('%Y%m%d%H%M')}.joblib"
+        artifact_path = Path(artifact_dir) / artifact_name
         model_hash = model.save(str(artifact_path))
         print(f"Model saved: {artifact_path} (SHA256: {model_hash[:16]}...)")
 
@@ -267,17 +300,22 @@ def do_train_model(
 
         # Register this model as active
         mv = ModelVersion(
-            algorithm="ols_baseline",
+            algorithm=algo_name,
             status="active",
             artifact_path=str(artifact_path),
             feature_schema_json=model.feature_schema,
-            metrics_json={"training_samples": len(df), "note": "CLI train-model"},
+            metrics_json={
+                "training_samples": len(df),
+                "algorithm": algo_name,
+                "note": "Observation-anchored temporal training on Alberta market data",
+                "dataset_source": "MarketCheck Automotive Data (Kaggle rupeshraundal/marketcheck-automotive-data-us-canada)",
+            },
             trained_at_utc=datetime.now(UTC),
             model_hash_sha256=model_hash,
         )
         session.add(mv)
         session.commit()
-        print(f"Model registered as ACTIVE (ModelVersion id={mv.id})")
+        print(f"Model registered as ACTIVE (ModelVersion id={mv.id}, algorithm={algo_name})")
 
     engine.dispose()
 
@@ -308,11 +346,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         func=lambda a: do_import_data(file_path=a.file, make=a.make, model=a.model, db_url=a.db_url)
     )
 
-    train_parser = subparsers.add_parser("train-model", help="train OLS baseline and activate")
+    train_parser = subparsers.add_parser("train-model", help="train valuation model and activate")
     train_parser.add_argument("--db-url", default="sqlite:///./data/carvalue.db")
     train_parser.add_argument("--artifact-dir", default="models", help="Directory for model artifacts")
+    train_parser.add_argument("--algorithm", default="catboost", choices=["catboost", "ols"], help="Algorithm to train (catboost or ols)")
     train_parser.set_defaults(
-        func=lambda a: do_train_model(db_url=a.db_url, artifact_dir=a.artifact_dir)
+        func=lambda a: do_train_model(db_url=a.db_url, artifact_dir=a.artifact_dir, algorithm=a.algorithm)
     )
 
     backup_parser = subparsers.add_parser("backup-db", help="create point-in-time SQLite snapshot")

@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 interface SystemStatus {
   status: string;
@@ -22,6 +23,7 @@ interface SystemStatus {
 }
 
 export default function AdminPage() {
+  const router = useRouter();
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(true);
   const [userid, setUserid] = useState("admin");
   const [password, setPassword] = useState("admin12345");
@@ -119,6 +121,16 @@ export default function AdminPage() {
     } else {
       setLoginError("Invalid credentials. Default: admin / admin12345");
     }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/admin/logout", { credentials: "include", method: "POST" });
+    } catch {
+      // Ignore network errors on logout
+    }
+    setIsLoggedIn(false);
+    router.push("/");
   };
 
   const handleTrainModel = (e: React.FormEvent) => {
@@ -226,6 +238,22 @@ export default function AdminPage() {
             <div style={{ marginTop: "1rem", fontSize: "0.75rem", color: "var(--text-muted)", textAlign: "center" }}>
               Default credentials: <code>admin</code> / <code>admin12345</code>
             </div>
+
+            <div style={{ marginTop: "1.25rem", textAlign: "center" }}>
+              <Link
+                href="/"
+                style={{
+                  fontSize: "0.82rem",
+                  color: "var(--accent-primary)",
+                  textDecoration: "none",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.35rem",
+                }}
+              >
+                ← Return to Valuator Workspace
+              </Link>
+            </div>
           </form>
         </div>
       </div>
@@ -249,7 +277,7 @@ export default function AdminPage() {
               textDecoration: "none",
             }}
           >
-            ← Back to Valuator
+            ← Back to Valuator Workspace
           </Link>
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
             <h1 style={{ fontSize: "1.85rem", fontWeight: 800, margin: 0, color: "var(--text-primary)" }}>
@@ -292,7 +320,7 @@ export default function AdminPage() {
           </button>
           <button
             type="button"
-            onClick={() => setIsLoggedIn(false)}
+            onClick={handleLogout}
             style={{
               background: "rgba(239, 68, 68, 0.1)",
               border: "1px solid rgba(239, 68, 68, 0.2)",

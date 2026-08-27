@@ -418,6 +418,8 @@ async def valuation(request: ValuationRequest, req: Request) -> ValuationRespons
             data_freshness_days = float("inf")
 
         features = {
+            "make": make_canonical,
+            "model": model_canonical,
             "model_year": request.year,
             "mileage_km": request.mileage_km,
             "trim": trim_canonical,

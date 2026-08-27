@@ -130,8 +130,19 @@ class OLSBaseline(ValuationModel):
 
     def fit(self, df: pd.DataFrame, reference_date: date | None = None) -> OLSBaseline:
         """Fit OLS model: Price_CAD = beta_0 + beta_1 * (age - age_mean) + beta_2 * mileage_km."""
-        ref = reference_date or date.today()
-        ages = np.array([vehicle_age_years(int(y), ref) for y in df["model_year"]])
+        if "observed_at" in df.columns:
+            ages = []
+            for y, obs in zip(df["model_year"], df["observed_at"]):
+                if pd.notna(obs):
+                    obs_date = obs.date() if hasattr(obs, "date") else date.fromisoformat(str(obs)[:10])
+                    ages.append(vehicle_age_years(int(y), obs_date))
+                else:
+                    ages.append(vehicle_age_years(int(y), reference_date or date.today()))
+            ages = np.array(ages, dtype=float)
+        else:
+            ref = reference_date or date.today()
+            ages = np.array([vehicle_age_years(int(y), ref) for y in df["model_year"]], dtype=float)
+
         mileages = df["mileage_km"].to_numpy(dtype=float)
         prices = df["price_cad"].to_numpy(dtype=float)
 
@@ -199,33 +210,35 @@ class CatBoostCandidate(ValuationModel):
             bounds=bounds,
             feature_schema=feature_schema,
         )
-        self.cat_features = cat_features or ["trim", "drivetrain", "seller_type"]
+        self.cat_features = cat_features or ["make", "model", "trim", "drivetrain", "seller_type"]
         self.point_model: CatBoostRegressor | None = None
         self.lower_model: CatBoostRegressor | None = None
         self.upper_model: CatBoostRegressor | None = None
         self.is_fitted = False
 
-    def _prepare_features(self, df: pd.DataFrame, reference_date: date) -> pd.DataFrame:
+    def _prepare_features(self, df: pd.DataFrame, reference_date: date | None = None) -> pd.DataFrame:
         features = pd.DataFrame(index=df.index)
-        features["vehicle_age"] = [
-            vehicle_age_years(int(y), reference_date) for y in df["model_year"]
-        ]
+        if "observed_at" in df.columns:
+            ages = []
+            for y, obs in zip(df["model_year"], df["observed_at"]):
+                if pd.notna(obs):
+                    obs_date = obs.date() if hasattr(obs, "date") else date.fromisoformat(str(obs)[:10])
+                    ages.append(vehicle_age_years(int(y), obs_date))
+                else:
+                    ages.append(vehicle_age_years(int(y), reference_date or date.today()))
+            features["vehicle_age"] = ages
+        else:
+            ref = reference_date or date.today()
+            features["vehicle_age"] = [
+                vehicle_age_years(int(y), ref) for y in df["model_year"]
+            ]
         features["mileage_km"] = df["mileage_km"].astype(float)
-        features["trim"] = (
-            df["trim"].fillna("unknown").astype(str)
-            if "trim" in df.columns
-            else pd.Series(["unknown"] * len(df), index=df.index)
-        )
-        features["drivetrain"] = (
-            df["drivetrain"].fillna("unknown").astype(str)
-            if "drivetrain" in df.columns
-            else pd.Series(["unknown"] * len(df), index=df.index)
-        )
-        features["seller_type"] = (
-            df["seller_type"].fillna("unknown").astype(str)
-            if "seller_type" in df.columns
-            else pd.Series(["unknown"] * len(df), index=df.index)
-        )
+        for col in ["make", "model", "trim", "drivetrain", "seller_type"]:
+            if col in self.cat_features:
+                if col in df.columns:
+                    features[col] = df[col].fillna("unknown").astype(str)
+                else:
+                    features[col] = pd.Series(["unknown"] * len(df), index=df.index)
         return features
 
     def fit(
@@ -312,17 +325,15 @@ class CatBoostCandidate(ValuationModel):
         year = int(features["model_year"])
         age = vehicle_age_years(year, val_date)
 
-        row = pd.DataFrame(
-            [
-                {
-                    "vehicle_age": float(age),
-                    "mileage_km": float(features["mileage_km"]),
-                    "trim": str(features.get("trim") or "unknown"),
-                    "drivetrain": str(features.get("drivetrain") or "unknown"),
-                    "seller_type": str(features.get("seller_type") or "unknown"),
-                }
-            ]
-        )
+        row_dict: dict[str, Any] = {
+            "vehicle_age": float(age),
+            "mileage_km": float(features["mileage_km"]),
+        }
+        for col in ["make", "model", "trim", "drivetrain", "seller_type"]:
+            if col in self.cat_features:
+                row_dict[col] = str(features.get(col) or "unknown")
+
+        row = pd.DataFrame([row_dict])
 
         point = float(self.point_model.predict(row)[0])
         low = float(self.lower_model.predict(row)[0])

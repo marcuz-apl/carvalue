@@ -25,6 +25,7 @@ export interface ValuationResponse {
   real_comparables_count?: number;
   synthetic_comparables_count?: number;
   dataset_provenance?: string;
+  category?: string;
   data_freshness_days: number;
   valuation_date: string;
   disclaimer: string;

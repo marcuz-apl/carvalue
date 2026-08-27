@@ -29,6 +29,17 @@ export default function ValuationResult({
       ? "Moderate Confidence"
       : "Low Sample Confidence";
 
+  const categoryDisplay = (() => {
+    const cat = result.category || request.category;
+    if (cat === "suv") return "🚙 SUV / Crossover";
+    if (cat === "sedan") return "🚗 Sedan";
+    if (cat === "coupe") return "🏎️ Coupe / Sports";
+    if (cat === "van") return "🚐 Van / Minivan";
+    if (cat === "hatchback") return "🚘 Hatchback";
+    if (cat === "pickup") return "🛻 Pickup Truck";
+    return null;
+  })();
+
   return (
     <div className="glass-card result-card" id="valuation-result-container">
       <div>
@@ -41,18 +52,35 @@ export default function ValuationResult({
             }}
           >
             <div>
-              <span
-                className={`pill ${
-                  result.dataset_provenance?.includes("Real")
-                    ? "badge-high"
-                    : result.dataset_provenance?.includes("Combined")
-                    ? "badge-medium"
-                    : "badge-low"
-                }`}
-                style={{ marginBottom: "0.5rem", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
-              >
-                {result.dataset_provenance || "Alberta Market Estimate"}
-              </span>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginBottom: "0.5rem" }}>
+                <span
+                  className={`pill ${
+                    result.dataset_provenance?.includes("Real")
+                      ? "badge-high"
+                      : result.dataset_provenance?.includes("Combined")
+                      ? "badge-medium"
+                      : "badge-low"
+                  }`}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}
+                >
+                  {result.dataset_provenance || "Alberta Market Estimate"}
+                </span>
+                {categoryDisplay && (
+                  <span
+                    className="pill"
+                    style={{
+                      background: "rgba(56, 189, 248, 0.12)",
+                      borderColor: "rgba(56, 189, 248, 0.3)",
+                      color: "var(--accent-primary)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "0.35rem",
+                    }}
+                  >
+                    {categoryDisplay}
+                  </span>
+                )}
+              </div>
               <h2
                 className="result-vehicle-name"
                 style={{ fontSize: "1.35rem", color: "var(--text-primary)" }}

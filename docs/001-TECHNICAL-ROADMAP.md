@@ -111,12 +111,20 @@
 
 **Exit gate:** each new segment has its own coverage decision, slice metrics, refusal policy, provenance, and rollback path.
 
+### M9 — Full Alberta Multi-Category Expansion (Complete)
+
+**Purpose:** Deliver full multi-category vehicle coverage (SUVs, Crossovers, Sedans, Coupes, Vans, Hatchbacks) across Alberta.
+
+**Work:** canonical multi-category taxonomy nodes, category-filtered model queries, multi-category database seeding, API category serialization, UI category badges and cascading selectors, and slice regression gate tests.
+
+**Depends on:** M8 coverage expansion foundations and real Alberta dataset.
+
+**Exit gate:** multi-category taxonomy resolution and category slice evaluation pass unit/integration tests; web UI supports cascading category selection; 90/90 tests pass.
+
 ## Current execution order
 
-1. Complete M1 design and contract tests using the sanitized Ford Ranger workbook fixture.
-2. Implement M1 source-policy, taxonomy, normalized-observation, and fixture contracts.
-3. Review the M1 exit evidence.
-4. Plan and execute M2 only after M1 passes.
+1. Complete Milestones M0 through M9 (All Done).
+2. Production operations and live monitoring.
 
 ## Decision records
 

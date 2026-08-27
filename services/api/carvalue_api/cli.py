@@ -25,12 +25,13 @@ from carvalue_core.security import hash_password
 
 def _seed_db(session: Any, *, db_path: str | Path) -> None:
     """Seed the taxonomy system of record and a default admin (first-boot)."""
-    from carvalue_core.taxonomy import seed_pickup_taxonomy
+    from carvalue_core.taxonomy import seed_full_alberta_taxonomy
 
     existing_ids = session.execute(select(VehicleTaxonomy.id)).scalars().all()
     if not existing_ids:
+        all_nodes = seed_full_alberta_taxonomy()
         parent_ids: dict[str, int] = {}
-        for node in seed_pickup_taxonomy():
+        for node in all_nodes:
             if node.level == "make":
                 row = VehicleTaxonomy(
                     level="make",
@@ -40,19 +41,20 @@ def _seed_db(session: Any, *, db_path: str | Path) -> None:
                 session.add(row)
                 session.flush()
                 parent_ids[node.canonical_name] = int(row.id)  # type: ignore[arg-type]
-        for node in seed_pickup_taxonomy():
+        for node in all_nodes:
             if node.level == "model":
                 parent_id = parent_ids.get(node.parent_canonical) if node.parent_canonical else None
+                aliases = [node.canonical_name, node.category or "other", *node.aliases]
                 row = VehicleTaxonomy(
                     level="model",
                     canonical_name=node.canonical_name,
-                    aliases_json=list(node.aliases),
+                    aliases_json=aliases,
                     parent_id=parent_id,
                 )
                 session.add(row)
                 session.flush()
                 parent_ids[node.canonical_name] = int(row.id)  # type: ignore[arg-type]
-        for node in seed_pickup_taxonomy():
+        for node in all_nodes:
             if node.level == "trim":
                 parent_id = parent_ids.get(node.parent_canonical) if node.parent_canonical else None
                 row = VehicleTaxonomy(

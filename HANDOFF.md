@@ -70,3 +70,12 @@ The entire Technical Roadmap (**Milestones M0 through M8**) has been implemented
   - `SegmentRegressionGate`: prevents promotion if any supported segment regresses $>8\%$ MAE.
   - Anonymous visitor feedback endpoint (`POST /v1/valuations/feedback`).
   - Architectural decision record (`docs/007-ADR-0002-coverage-expansion-governance.md`).
+
+- **M9 — Full Alberta Multi-Category Expansion:**
+  - Expanded reference taxonomy (`seed_full_alberta_taxonomy()` in `carvalue_core.taxonomy`) covering Pickups, SUVs, Crossovers, Sedans, Coupes, Vans, and Hatchbacks.
+  - Multi-category database seeding in `do_init_db()` and `_seed_db()` with category-indexed aliases.
+  - API taxonomy serialization (`GET /v1/taxonomy`) returning `models_by_category` groupings.
+  - Valuation response category resolution and category badge pill rendering in `ValuationResult.tsx`.
+  - Full multi-category test suite (`tests/test_multi_category_expansion.py`) verifying taxonomy normalization, category filtering, API integration, and category slice regression gates.
+  - Technote: `docs/012-TECHNOTE-20260827-MILESTONE-9-MULTI-CATEGORY-EXPANSION.md`.
+

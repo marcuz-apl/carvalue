@@ -213,6 +213,7 @@ class ValuationResponse(BaseModel):
     real_comparables_count: int = 0
     synthetic_comparables_count: int = 0
     dataset_provenance: str = "Real Alberta Dealer Listings (2022)"
+    category: str | None = None
     data_freshness_days: float
     valuation_date: date
     disclaimer: str = "This is an estimate, not a professional appraisal."
@@ -478,6 +479,17 @@ async def valuation(request: ValuationRequest, req: Request) -> ValuationRespons
             else:
                 provenance = "Simulated Benchmark Sample"
 
+        category_resolved = request.category if request.category and request.category != "all" else None
+        if not category_resolved and model_canonical:
+            model_node = db.execute(
+                select(VehicleTaxonomy).where(
+                    VehicleTaxonomy.level == "model",
+                    VehicleTaxonomy.canonical_name == model_canonical,
+                )
+            ).scalars().first()
+            if model_node and model_node.aliases_json and len(model_node.aliases_json) > 1:
+                category_resolved = model_node.aliases_json[1]
+
         return ValuationResponse(
             estimate_cad=est_cad,
             interval_low_cad=low_cad,
@@ -487,6 +499,7 @@ async def valuation(request: ValuationRequest, req: Request) -> ValuationRespons
             real_comparables_count=real_comps_count,
             synthetic_comparables_count=synthetic_comps_count,
             dataset_provenance=provenance,
+            category=category_resolved,
             data_freshness_days=round(data_freshness_days, 1),
             valuation_date=val_date,
         )

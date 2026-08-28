@@ -149,7 +149,7 @@ html, body {
 
 .main-content {
   flex: 1;
-  max-width: 1200px;
+  max-width: 1380px;
   margin: 0 auto;
   padding: 0.85rem 1.5rem 2rem;
   width: 100%;
@@ -166,7 +166,7 @@ html, body {
 }
 
 .nav-container {
-  max-width: 1200px;
+  max-width: 1380px;
   margin: 0 auto;
   padding: 0.85rem 1.5rem;
   width: 100%;

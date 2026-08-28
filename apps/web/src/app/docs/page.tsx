@@ -93,10 +93,9 @@ const navSections = [
     ],
   },
   {
-    group: "Governance & Privacy",
+    group: "Admin & Governance",
     items: [
-      { id: "admin-governance", label: "Model Registry & Studio" },
-      { id: "privacy-ethics", label: "Statutory Privacy & FOIP/PIPA" },
+      { id: "admin-governance", label: "Admin ML Studio & Model Registry" },
     ],
   },
 ];
@@ -196,7 +195,7 @@ export default function DocsPage() {
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
               <h1 className="docs-title">Documentation & Engine Guide</h1>
               <span className="pill" style={{ background: "rgba(56, 189, 248, 0.1)", color: "var(--accent-primary)", borderColor: "rgba(56, 189, 248, 0.3)" }}>
-                v1.3.1
+                v1.3.3
               </span>
             </div>
             <p className="docs-lead">
@@ -477,10 +476,10 @@ adjusted_price = base_model_estimate * ((1.0 + annual_drift_rate) ** years_elaps
             </div>
           </section>
 
-          {/* Section: API Reference */}
+          {/* Section: API Valuations */}
           <section id="api-valuations" className="docs-section">
             <h2 className="docs-section-heading">
-              API Reference: POST /v1/valuations
+              POST /v1/valuations
               <a href="#api-valuations" className="heading-anchor">#</a>
             </h2>
             <p className="docs-paragraph">
@@ -548,10 +547,162 @@ console.log(\`Estimated: $\${data.estimate_cad} CAD\`);`,
             />
           </section>
 
-          {/* Section: Admin & Governance */}
+          {/* Section: API Taxonomy */}
+          <section id="api-taxonomy" className="docs-section">
+            <h2 className="docs-section-heading">
+              GET /v1/taxonomy
+              <a href="#api-taxonomy" className="heading-anchor">#</a>
+            </h2>
+            <p className="docs-paragraph">
+              Retrieve all canonical vehicle makes, models categorized across market segments (pickups, SUVs, sedans, coupes, vans, hatchbacks), available trims, and drivetrains.
+            </p>
+
+            <CodeBlock
+              tabs={[
+                {
+                  label: "cURL",
+                  language: "bash",
+                  code: `curl -X GET http://localhost:4020/api/v1/taxonomy`,
+                },
+                {
+                  label: "Response JSON",
+                  language: "json",
+                  code: `{
+  "makes": ["Ford", "Toyota", "Ram", "Chevrolet", "GMC", "Honda", "Hyundai", "Jeep", ...],
+  "models_by_make": {
+    "Ford": ["F-150", "Super Duty F-250", "Ranger", "Escape", "Explorer", "Mustang", "Edge"],
+    "Toyota": ["Tacoma", "Tundra", "RAV4", "Highlander", "Camry", "Corolla", "4Runner"],
+    "Ram": ["1500", "2500", "3500", "1500 Classic", "ProMaster"]
+  },
+  "trims_by_model": {
+    "F-150": ["XL", "XLT", "Lariat", "King Ranch", "Platinum", "Limited", "Tremor", "Raptor"],
+    "RAV4": ["LE", "XLE", "Trail", "Limited", "TRD Off-Road", "XSE Prime"]
+  },
+  "categories": ["pickup", "suv", "sedan", "hatchback", "van", "coupe", "wagon", "all"],
+  "models_by_category": {
+    "pickup": {
+      "Ford": ["F-150", "Super Duty F-250", "Ranger"],
+      "Toyota": ["Tacoma", "Tundra"]
+    }
+  }
+}`,
+                },
+                {
+                  label: "TypeScript Client",
+                  language: "typescript",
+                  code: `const res = await fetch("/api/v1/taxonomy");
+const taxonomy = await res.json();
+console.log("Available categories:", taxonomy.categories);`,
+                },
+              ]}
+            />
+          </section>
+
+          {/* Section: API System Status */}
+          <section id="api-system-status" className="docs-section">
+            <h2 className="docs-section-heading">
+              GET /v1/system/status
+              <a href="#api-system-status" className="heading-anchor">#</a>
+            </h2>
+            <p className="docs-paragraph">
+              Inspect live backend health, active machine learning model metadata, training sample count, total indexed listings, price observations, and data freshness metrics.
+            </p>
+
+            <CodeBlock
+              tabs={[
+                {
+                  label: "cURL",
+                  language: "bash",
+                  code: `curl -X GET http://localhost:4020/api/v1/system/status`,
+                },
+                {
+                  label: "Response JSON",
+                  language: "json",
+                  code: `{
+  "status": "ok",
+  "timestamp_utc": "2026-08-28T12:00:00.000000+00:00",
+  "active_model": {
+    "id": 4,
+    "algorithm": "catboost_candidate",
+    "trained_at_utc": "2026-08-25T18:37:43.635130+00:00",
+    "metrics": {
+      "training_samples": 44420,
+      "algorithm": "catboost_candidate",
+      "note": "Observation-anchored temporal training on Alberta market data"
+    }
+  },
+  "data_freshness_days": 8.0,
+  "total_listings": 44412,
+  "total_price_observations": 44420,
+  "sources_breakdown": {
+    "real_dealer_listings_2022": 44356,
+    "synthetic_simulator_sample": 56
+  }
+}`,
+                },
+                {
+                  label: "TypeScript Client",
+                  language: "typescript",
+                  code: `const res = await fetch("/api/v1/system/status");
+const status = await res.json();
+console.log(\`Active Model: \${status.active_model.algorithm} (ID: \${status.active_model.id})\`);`,
+                },
+              ]}
+            />
+          </section>
+
+          {/* Section: API Valuation Feedback */}
+          <section id="api-feedback" className="docs-section">
+            <h2 className="docs-section-heading">
+              POST /v1/valuations/feedback
+              <a href="#api-feedback" className="heading-anchor">#</a>
+            </h2>
+            <p className="docs-paragraph">
+              Submit anonymous feedback regarding valuation usefulness or market calibration accuracy. Feedback helps fine-tune uncertainty bounds without collecting any user identity or personal data.
+            </p>
+
+            <CodeBlock
+              tabs={[
+                {
+                  label: "cURL",
+                  language: "bash",
+                  code: `curl -X POST http://localhost:4020/api/v1/valuations/feedback \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "valuation_event_id": 142,
+    "feedback_useful": true,
+    "feedback_notes": "Close to recent Calgary dealer trade-in quote."
+  }'`,
+                },
+                {
+                  label: "Response JSON",
+                  language: "json",
+                  code: `{
+  "status": "ok",
+  "message": "Feedback recorded"
+}`,
+                },
+                {
+                  label: "TypeScript Client",
+                  language: "typescript",
+                  code: `await fetch("/api/v1/valuations/feedback", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    valuation_event_id: 142,
+    feedback_useful: true,
+    feedback_notes: "Accurate interval."
+  })
+});`,
+                },
+              ]}
+            />
+          </section>
+
+          {/* Section: Admin ML Studio & Model Registry */}
           <section id="admin-governance" className="docs-section">
             <h2 className="docs-section-heading">
-              Admin Governance & ML Studio
+              Admin ML Studio & Model Registry
               <a href="#admin-governance" className="heading-anchor">#</a>
             </h2>
             <p className="docs-paragraph">
@@ -578,22 +729,6 @@ console.log(\`Estimated: $\${data.estimate_cad} CAD\`);`,
                 </div>
               </div>
             </div>
-          </section>
-
-          {/* Section: Privacy & Ethics */}
-          <section id="privacy-ethics" className="docs-section">
-            <h2 className="docs-section-heading">
-              Data Rights, Provenance & Privacy Standards
-              <a href="#privacy-ethics" className="heading-anchor">#</a>
-            </h2>
-            <p className="docs-paragraph">
-              CarValue operates with statutory compliance under Alberta’s <strong>Personal Information Protection Act (PIPA)</strong> and Canadian federal <strong>PIPEDA</strong> regulations:
-            </p>
-            <ul style={{ color: "var(--text-secondary)", fontSize: "0.9rem", lineHeight: 1.8, paddingLeft: "1.25rem" }}>
-              <li><strong>Zero User Tracking:</strong> No visitor account, cookie profiling, or device fingerprinting is used.</li>
-              <li><strong>No Personal Seller Details:</strong> Seller names, phone numbers, email addresses, and personal remarks are strictly excluded from ingestion.</li>
-              <li><strong>Deny-by-Default Collection:</strong> Scrapers for unlicensed third-party websites remain disabled by default. Data is sourced from verified DMS dealer feeds and rights-confirmed open datasets.</li>
-            </ul>
           </section>
         </div>
       </div>

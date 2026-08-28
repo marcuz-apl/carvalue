@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import "./globals.css";
+import ThemeToggle from "../components/ThemeToggle";
 import DisclaimerModal from "../components/DisclaimerModal";
 import PrivacyModal from "../components/PrivacyModal";
 import SiteFooter from "../components/SiteFooter";
@@ -32,8 +33,39 @@ export default function RootLayout({
           {/* Main Top Header: Aligned with Main Workspace and Footer (max-width: 1200px) */}
           <header className="site-header">
             <nav className="nav-container" aria-label="Main Navigation">
-              {/* Left Column: Docs Link */}
-              <div style={{ flex: "1 1 0%", display: "flex", justifyContent: "flex-start", alignItems: "center" }}>
+              {/* Left Column: Home and Docs Links */}
+              <div style={{ flex: "1 1 0%", display: "flex", justifyContent: "flex-start", alignItems: "center", gap: "1rem" }}>
+                <Link
+                  href="/"
+                  className="nav-link hover-accent"
+                  id="nav-link-home"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.4rem",
+                    textDecoration: "none",
+                    color: "var(--text-primary)",
+                    fontWeight: 600,
+                    fontSize: "0.88rem",
+                  }}
+                >
+                  <svg
+                    width="17"
+                    height="17"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ color: "var(--accent-primary)" }}
+                  >
+                    <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+                    <polyline points="9 22 9 12 15 12 15 22" />
+                  </svg>
+                  <span>Home</span>
+                </Link>
+
                 <Link
                   href="/docs"
                   className="nav-link hover-accent"
@@ -104,8 +136,8 @@ export default function RootLayout({
                 </Link>
               </div>
 
-              {/* Right Column: Admin Link */}
-              <div style={{ flex: "1 1 0%", display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
+              {/* Right Column: Admin Link & Theme Toggler */}
+              <div style={{ flex: "1 1 0%", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "0.75rem" }}>
                 <Link
                   href="/admin"
                   className="nav-link"
@@ -138,6 +170,8 @@ export default function RootLayout({
                   </svg>
                   <span>Admin</span>
                 </Link>
+
+                <ThemeToggle />
               </div>
             </nav>
           </header>

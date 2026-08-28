@@ -101,26 +101,13 @@ const navSections = [
   },
 ];
 
-const tocHeadings = [
-  { id: "intro", label: "Introduction & Scope" },
-  { id: "architecture", label: "Unified Port 4020 Architecture" },
-  { id: "price-aging", label: "Observation-Anchored Age" },
-  { id: "macro-drift", label: "Macro Price Drift Economics" },
-  { id: "statistical-models", label: "OLS Baseline & CatBoost ML" },
-  { id: "prediction-intervals", label: "80% Prediction Intervals" },
-  { id: "refusal-rules", label: "Refusal & Evidence Rules" },
-  { id: "categories", label: "Alberta Vehicle Categories (M9)" },
-  { id: "alberta-regions", label: "Regional Sub-Markets" },
-  { id: "api-valuations", label: "Valuation API Contract" },
-  { id: "admin-governance", label: "Model Registry & ML Studio" },
-  { id: "privacy-ethics", label: "Privacy & Statutory Standards" },
-];
-
 export default function DocsPage() {
   const [activeSection, setActiveSection] = useState("intro");
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
+    const allItemIds = navSections.flatMap((group) => group.items.map((item) => item.id));
+
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
@@ -132,7 +119,7 @@ export default function DocsPage() {
       { rootMargin: "-80px 0px -60% 0px", threshold: 0.1 }
     );
 
-    tocHeadings.forEach(({ id }) => {
+    allItemIds.forEach((id) => {
       const el = document.getElementById(id);
       if (el) observer.observe(el);
     });
@@ -609,27 +596,6 @@ console.log(\`Estimated: $\${data.estimate_cad} CAD\`);`,
             </ul>
           </section>
         </div>
-
-        {/* Right Floating TOC (OpenCode "On this page" Style) */}
-        <aside className="docs-toc">
-          <div className="docs-toc-title">On this page</div>
-          <ul className="docs-toc-list">
-            {tocHeadings.map((heading) => (
-              <li key={heading.id}>
-                <a
-                  href={`#${heading.id}`}
-                  className={`docs-toc-link ${activeSection === heading.id ? "active" : ""}`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    scrollToSection(heading.id);
-                  }}
-                >
-                  {heading.label}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </aside>
       </div>
     </div>
   );
